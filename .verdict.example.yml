@@ -1,0 +1,15 @@
+# Verdict task spec, version 1.
+# Secrets are never written here: ${VAR} values come from environment variables
+# (locally from .env; in CI from GitHub secrets passed as env vars).
+version: 1
+task: ENG-204 Ticket booking
+base_url: ${PREVIEW_URL}
+auth:
+  email: ${VERDICT_TEST_EMAIL}
+  password: ${VERDICT_TEST_PASSWORD}
+criteria:
+  - id: book-ticket
+    check: A logged-in user can book one ticket for "Verdict Demo Night" and sees a confirmation.
+limits:
+  max_steps_per_criterion: 15
+  timeout_seconds: 300

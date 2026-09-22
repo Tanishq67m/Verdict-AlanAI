@@ -36,7 +36,7 @@ export interface RunOptions {
   commit?: string | null;
   observer?: Observer;
   launch?: LaunchOptions;
-  /** Fixed run id (tests); default random. */
+  /** Run id; generate it with newRunId() before creating the logger so every log line carries it. */
   runId?: string;
 }
 
@@ -87,7 +87,7 @@ async function withWatchdog<T>(work: Promise<T>, deadline: number, onTimeout: ()
 export async function runVerification(options: RunOptions): Promise<RunResult> {
   const { spec, llm, redactor } = options;
   const runId = options.runId ?? newRunId();
-  const logger = options.logger.child({ run_id: runId });
+  const logger = options.logger;
   const started = Date.now();
   const deadline = started + spec.limits.timeout_seconds * 1000;
   const artifactsPath = resolve(options.artifactsDir, runId);
