@@ -20,7 +20,9 @@ Design decisions and deviations from the PRD are in `docs/PLAN.md` (C-1 … C-10
 cd ~/AlanAI/verdict
 
 # once
-corepack enable            # or: npm i -g pnpm@12.5.1
+# pnpm 12 ships as a native binary that Corepack (v0.34) can't launch, so install it with npm.
+corepack disable pnpm      # removes Corepack's pnpm shim if it was enabled
+npm i -g pnpm@12.5.1
 pnpm install
 pnpm setup:browsers        # downloads Chromium for Playwright
 
