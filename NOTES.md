@@ -101,11 +101,67 @@ $ pnpm verdict run --spec .verdict.example.yml     # exit=2
 
 Every stderr log line carried `run_id`; a grep of stdout, stderr and the artifacts found 0 occurrences of the test email or password.
 
-**4. Real run against EventPulse with Gemini: PENDING.** Paste the verdict JSON and the stderr log here:
+**4. Real run against local EventPulse with Gemini** (MacBook Air, 22 Sept 2026; EventPulse web as a production build, API in dev mode; `gemini-3.5-flash-lite`, default thinking):
 
 ```
-(pending)
+$ pnpm verdict run --spec .verdict.example.yml --url http://localhost:3000 > verdict.json
+step 1   navigate http://localhost:3000                          → loaded (HTTP 200)
+step 2   click e11            [link "Sign in"]                   → /auth/login
+step 3   type "{{auth.email}}" into e328 [textbox "you@example.com"]
+step 4   type "{{auth.password}}" into e331 + Enter              → /events
+step 5   click e512           [link]                              → /events/verdict-demo-night-351e471b
+step 6   click e638           [button "General Admission Standard pass Free Availability 40 left"]
+step 7   click e649           [button "Confirm Booking"]
+step 8   wait_for text "Booking Confirmed"                        → appeared
+step 9   assert (final) text visible "Booking Confirmed!"         → PASSED
+step 10  conclude
+criterion_decided  result=pass  decided_by=dom  stop=concluded  steps=10
+run_finished       status=pass  duration_ms=29128  llm_calls=9  llm_tokens=21192  usd=0.007625
 ```
+(Condensed from the JSON log lines; the full log is one JSON object per line on stderr.)
+
+```json
+{
+  "run_id": "run_eff89efc",
+  "status": "pass",
+  "commit": null,
+  "summary": { "passed": 1, "failed": 0, "error": 0, "inconclusive": 0 },
+  "criteria": [
+    {
+      "id": "book-ticket",
+      "result": "pass",
+      "expected": "\"Booking Confirmed!\" is visible",
+      "observed": "\"Booking Confirmed!\" is visible",
+      "failing_step": null,
+      "evidence": {
+        "screenshot_url": "file:///Users/tanishqmohod/AlanAI/verdict/artifacts/run_eff89efc/book-ticket-step10.png",
+        "trace_url": null,
+        "console_errors": [],
+        "failed_requests": []
+      },
+      "repair_hint": null
+    }
+  ],
+  "cost": { "llm_tokens": 21192, "usd": 0.007625 },
+  "duration_ms": 29128
+}
+```
+
+Checked after the run:
+- `verdict.json` validates against `VerdictV1Schema` (checked separately, not just by the run itself).
+- The decision-step screenshot shows the "Booking Confirmed!" panel on Verdict Demo Night.
+- 0 occurrences of the test account's email or password in `verdict.json`, `book-ticket-steps.json` or the artifacts' `verdict.json`. The log shows only `{{auth.email}}` / `{{auth.password}}`.
+- The pass was **decided by the DOM assertion** (`decided_by=dom`); the LLM judge was not called.
+- Cost at Gemini's paid list price: **$0.0076** for one criterion (actual spend $0, free tier). Linear extrapolation to 5 criteria ≈ $0.038, under the $0.05 target but not by much. Measure it in M2, don't assume it.
+- Latency: 29 s for one criterion, ~1.3–2.6 s per LLM call.
+
+What this run does **not** prove yet: that Verdict catches bugs on EventPulse (that's the M4 benchmark) or that the result is stable across reruns (M2/M4).
+
+Observations from the trace, for M2:
+- Step 5 clicked a `link` with **no accessible name** (the event card). That's an accessibility gap in EventPulse's event card; Verdict still found it from context, but role+name targeting would be ambiguous there.
+- Steps 8 and 9 overlap (a `wait_for` then an assert on the same text): one wasted LLM call. The planner prompt can say "assert directly; assertions already wait up to 3 s".
+- `ignored_signals: 12`: out-of-scope signals (third-party or 4xx) were seen but didn't decide. M2 should log what they were at debug level, so a real bug can't hide there.
+- The run created a real booking; the booking must be cancelled before the next run (open question 5).
 
 ### Open questions for Milestone 2
 
