@@ -185,7 +185,6 @@ TypeScript end to end, strict mode, zod at every boundary (spec in, LLM reply in
 ## Roadmap
 
 - [x] **Milestone 1:** one criterion, locally: schemas, observe → act → judge loop, hybrid judging, evidence, CLI, unit + e2e tests, a real run
-- [ ] **Milestone 1.5:** [VisionStream](https://github.com/Tanishq67m/visionapi) as a second observer, measured against the accessibility snapshot on tokens per step
 - [ ] **Milestone 2:** multiple criteria, flake handling (retry, fresh-context rerun, disagreement → `inconclusive`), Fastify API with idempotency keys, BullMQ + Postgres, artifact upload with redacted Playwright traces, `docker compose up`
 - [ ] **Milestone 3:** GitHub Action on `deployment_status` (check status + one PR comment updated in place), re-run failed criteria only, hosted API and worker
 - [ ] **Milestone 4:** seeded-bug benchmark on EventPulse (6 bugs × 3 runs, clean main × 5): catch rate, false-fail rate, stability, p50/p95 latency, cost per run

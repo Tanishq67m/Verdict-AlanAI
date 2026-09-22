@@ -10,8 +10,8 @@ export interface Observation {
 }
 
 /**
- * The "eyes" are swappable (D-5): M1 ships the Playwright accessibility snapshot,
- * M1.5 adds VisionStream behind this same interface and compares the two.
+ * The "eyes" are swappable: Verdict ships the Playwright accessibility snapshot, and another
+ * observer can be added behind this interface without touching the loop.
  */
 export interface Observer {
   readonly name: string;

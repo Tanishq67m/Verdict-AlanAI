@@ -1,6 +1,6 @@
 # Verdict — Design Notes & Plan
 
-`docs/PRD.md` describes the product. This file records what reading the code of the two projects Verdict builds on changed about that plan, and the order of work. **Where this file and the PRD disagree, this file wins.**
+`docs/PRD.md` describes the product. This file records what reading the code of the app under test changed about that plan, and the order of work. **Where this file and the PRD disagree, this file wins.**
 
 ---
 
@@ -12,21 +12,15 @@ Verdict is a QA agent for pull requests. A preview deploy of the app is opened i
 
 ---
 
-## 2. The two projects Verdict builds on
+## 2. The app under test
 
-| Project | Role |
-|---|---|
-| **EventPulse** (`github.com/Tanishq67m/event-Manager`) | The app under test. Booking, seat counts and sold-out logic provide realistic, seedable bugs (B1–B6). |
-| **VisionStream** (`github.com/Tanishq67m/visionapi`) | Turns a web page into compact, structured context for an LLM. Planned as Verdict's page reader to cut tokens per step. |
+**EventPulse** (`github.com/Tanishq67m/event-Manager`), an event ticketing platform, is the demo target. Its booking, seat-count and sold-out logic provide realistic, seedable bugs (B1–B6).
 
 ---
 
-## 3. Staging: one integration at a time
+## 3. Page observation
 
-Page observation sits behind an `Observer` interface.
-
-- **Stage A (Milestone 1):** Verdict + EventPulse, observing pages with Playwright's AI-mode accessibility snapshot (`page.ariaSnapshot({ mode: "ai" })`).
-- **Stage B (Milestone 1.5):** add a `VisionStreamObserver` behind the same interface and measure tokens per step, steps taken and accuracy on the same criteria. "VisionStream saves tokens" becomes a measured number.
+Verdict observes pages with Playwright's AI-mode accessibility snapshot (`page.ariaSnapshot({ mode: "ai" })`): the page's accessibility tree as compact text, with a reference on every element that the executor can click (`aria-ref=e12`). It sits behind an `Observer` interface, so another observer can be added later without touching the loop.
 
 ---
 
@@ -43,16 +37,10 @@ The LLM client is provider-agnostic (one interface, swappable implementation), a
 
 ---
 
-## 5. Findings from reading the code
+## 5. Findings from reading EventPulse
 
-### VisionStream (commit `8dc8ad3`)
-- `observePage(page)` reads a live page (headings, buttons, forms, interactive elements with positions) without modifying it: reusable.
-- Element ids (`el-12`) are not written into the DOM, so they can't be clicked afterwards. The PRD's "stable selectors" don't exist yet.
-- `cleanPage()` removes DOM nodes (anything matching `share`, `promo`, `cookie`, fixed overlays). Fine before a screenshot, unsafe on a page under test.
-- `captureForAI()` opens and closes its own browser context, so it can't be used mid-session (the login would be lost).
-- The package's entry point is an uncommitted `dist/`, and it depends on Supabase/Express/Swagger, so a git dependency isn't clean.
+Read at commit `7f672d7`.
 
-### EventPulse (commit `7f672d7`)
 - Only the Next.js frontend is on Vercel; the frontend reaches the API through `NEXT_PUBLIC_API_URL`. Every preview talks to the same backend, so backend bugs (B2, B3, B5) won't appear in a frontend preview.
 - The API's CORS allows a single origin (`cors({ origin: env.FRONTEND_URL })`), which blocks preview URLs.
 - Free tickets (price 0) confirm immediately; paid tickets go to Razorpay. Test events are free.
@@ -67,7 +55,7 @@ The LLM client is provider-agnostic (one interface, swappable implementation), a
 | # | Change | Why |
 |---|---|---|
 | C-1 | Default LLM is **Gemini** (free tier); Ollama is the planned second provider. | No paid LLM key; the client stays provider-agnostic. |
-| C-2 | Milestone 1 observes pages with **Playwright's accessibility snapshot**; VisionStream arrives in Milestone 1.5. | VisionStream needs clickable ids first (§5). |
+| C-2 | Pages are observed with **Playwright's accessibility snapshot** instead of a separate context-extraction library. | Built into Playwright, compact text, and every element has a reference the executor can click; no extra dependency. |
 | C-3 | Spec secrets use `${VERDICT_TEST_EMAIL}` (environment), not `${{ secrets.X }}`. | GitHub only expands `${{ }}` inside workflow files, never inside `.verdict.yml`. The Action passes secrets as env vars. |
 | C-4 | The LLM types **placeholders** (`{{auth.email}}`); the executor swaps in real values in the browser only. | Credentials never reach the LLM. |
 | C-5 | A `conclude` **control signal** alongside the six browser actions. | The closed action set has no way to end the loop. |
@@ -83,11 +71,6 @@ The LLM client is provider-agnostic (one interface, swappable implementation), a
 
 ### Milestone 1 — one criterion, locally ✅
 Workspace scaffold; zod schemas for task spec and verdict; Gemini client; observe → act → judge loop with hybrid judging, limits and evidence; `pnpm verdict run` CLI; unit and end-to-end tests; a real run against local EventPulse (see `NOTES.md`).
-
-### Milestone 1.5 — VisionStream observer
-1. Upstream in VisionStream: an opt-in option for `observePage()` to write `data-vs-id` onto elements.
-2. Vendor `observe.ts` + `smartWait.ts` unchanged at that commit into `packages/engine/src/observe/visionstream/`; `cleanPage()` is not used on the live page.
-3. `--observer visionstream|aria`; run `book-ticket` with both, 3 times each; record tokens per step, steps and result.
 
 ### Milestone 2 — full engine and API
 Multiple criteria; flake handling (retry a transient step once, re-run a failed criterion in a fresh context, disagreement → `inconclusive`); repair hints from the strongest signal; Fastify API (`POST /v1/runs` with `Idempotency-Key`, `GET /v1/runs/{id}`, `/healthz`); BullMQ on Redis; Postgres via Prisma; artifact upload and redacted Playwright traces; `docker-compose.yml` for the whole stack.
@@ -110,7 +93,7 @@ verdict/
 ├── packages/
 │   ├── schema/              zod: task spec + verdict (v1)
 │   ├── engine/
-│   │   ├── observe/         Observer interface: aria snapshot, VisionStream
+│   │   ├── observe/         Observer interface + accessibility-snapshot observer
 │   │   ├── actions/         navigate, click, type, select, wait_for, assert, conclude
 │   │   ├── signals/         console, page errors, network, request activity
 │   │   ├── judge/           network → console → DOM → LLM

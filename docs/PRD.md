@@ -2,7 +2,7 @@
 
 22 Sept 2026 · Tanishq Mohod
 
-> Original PRD, kept as written. Changes agreed after reading VisionStream and EventPulse are listed in `docs/PLAN.md` → "Changes to the PRD". Where the two differ, PLAN.md wins.
+> Product requirements. Changes agreed after reading EventPulse's code are listed in `docs/PLAN.md` → "Changes to the PRD". Where the two differ, PLAN.md wins.
 
 ## Overview
 
@@ -90,7 +90,7 @@ flowchart LR
     API --> DB[(Postgres)]
     API --> Q[BullMQ on Redis]
     Q --> W[Browser worker]
-    W --> VS[VisionStream<br/>clean context]
+    W --> VS[Observer<br/>accessibility snapshot]
     W --> LLM[LLM judge]
     W --> S3[Artifact store]
     W --> DB
@@ -102,7 +102,7 @@ flowchart LR
 | API service | Accept runs, auth, rate limits, return verdicts | Fastify + TypeScript; scoped API keys; idempotency key per run |
 | Queue | Durable job handoff between API and workers | BullMQ on Redis; exponential backoff; dead-letter queue |
 | Browser worker | Drive Chromium through each criterion | Playwright; fresh context per run; hard 5-minute timeout |
-| Context extractor | Turn a page into clean, structured context | VisionStream as a library: interactive elements, text, screenshot |
+| Page observer | Turn a page into compact, structured context | Playwright accessibility snapshot: interactive elements with clickable references, visible text |
 | LLM judge | Plan steps and judge each criterion | Provider-agnostic client; deterministic checks first, LLM second |
 | Artifact store | Screenshots and Playwright traces | S3-compatible (Supabase Storage); signed URLs, 14-day retention |
 | Postgres | Runs, criteria, verdicts, cost | Prisma schema; one row per criterion result |
@@ -183,7 +183,7 @@ An optional `callback_url` on POST /v1/runs receives the verdict by webhook, sig
 Each criterion runs as a bounded observe–act–judge loop, and deterministic checks decide before the LLM is ever asked, which is what keeps verdicts stable across reruns.
 
 ### The loop, per criterion
-1. **Observe.** VisionStream captures the page as clean, structured context: interactive elements with stable selectors, visible text, and a screenshot. UI noise (cookie banners, overlays, nav chrome) is stripped before the model sees it.
+1. **Observe.** Playwright's accessibility snapshot captures the page as compact, structured text: interactive elements with references the executor can click, and visible text. Screenshots are kept as evidence, not sent to the model.
 2. **Plan and act.** The LLM picks the next action from a closed set: navigate, click, type, select, wait_for, assert. Playwright executes it. No free-form code execution.
 3. **Judge.** Once the criterion's end state is reached, Verdict decides pass or fail, then records the evidence at that exact step.
 4. **Stop.** The loop ends on a decision, on max_steps_per_criterion (default 15), or on the run timeout, whichever comes first.
@@ -257,16 +257,16 @@ B3 is the one that matters most for the story: overselling under a sold-out stat
 
 ## Tech stack and repository structure
 
-Verdict is TypeScript end to end so it can import VisionStream directly, with every piece runnable locally through one `docker compose up`.
+Verdict is TypeScript end to end so the API, worker and GitHub Action share one set of types, with every piece runnable locally through one `docker compose up`.
 
 | Layer | Choice | Why |
 |---|---|---|
-| Language | TypeScript on Node 20 | Shares code with VisionStream; strict types across API and worker |
+| Language | TypeScript on Node 20 | Strict types shared across API, worker and Action |
 | API | Fastify + zod | Fast, schema-first request validation |
 | Queue | BullMQ on Redis | Retries, backoff, DLQ out of the box |
 | Database | Postgres + Prisma | Typed queries, migrations |
 | Browser | Playwright (Chromium) | Traces, auto-waiting, stable selectors |
-| Context | VisionStream (library) | Clean page context; the core advantage |
+| Context | Playwright accessibility snapshot | Compact page context with clickable element references |
 | LLM | Provider-agnostic client (Anthropic or OpenAI) | Swappable model; cost logged per call |
 | Storage | Supabase Storage | S3-compatible, signed URLs |
 | Tests | Vitest + Playwright test | Unit tests plus the benchmark suite |
@@ -302,7 +302,7 @@ The first shippable version takes four working sessions.
 
 **Milestone 1 — one criterion, locally (night 1)**
 - [ ] Monorepo scaffold, zod schemas for task spec and verdict
-- [ ] Worker runs Playwright + VisionStream against EventPulse's preview URL
+- [ ] Worker runs Playwright against EventPulse's preview URL
 - [ ] Observe–act–judge loop decides one criterion (book-ticket) and prints verdict JSON
 
 **Milestone 2 — full engine and API (night 2)**
@@ -336,7 +336,7 @@ The biggest risk is flaky LLM judgment, and the design answers it by letting det
 | LLM judge flips between runs | False fails erode trust | Hybrid judging; one fresh-context rerun; disagreement becomes inconclusive |
 | Auth-gated flows break the agent | Criteria can't be reached | Seeded test account via secrets; login as a reusable first step |
 | Preview URL not ready when the run starts | Spurious error results | Trigger on deployment_status: success; health-check the URL before starting |
-| LLM cost grows with page size | Cost target missed | VisionStream's cleaned context instead of raw HTML; per-run token cap |
+| LLM cost grows with page size | Cost target missed | Compact accessibility snapshot instead of raw HTML; per-run token cap |
 | Scope creep past 4 sessions | Nothing ships | Non-goals are fixed; anything new goes to a v2 list |
 
 ### Open questions
