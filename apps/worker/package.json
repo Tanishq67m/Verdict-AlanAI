@@ -1,0 +1,12 @@
+{
+  "name": "@verdict/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@verdict/engine": "workspace:*",
+    "@verdict/llm": "workspace:*",
+    "@verdict/schema": "workspace:*",
+    "playwright": "1.63.0"
+  }
+}

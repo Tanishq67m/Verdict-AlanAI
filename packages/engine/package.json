@@ -1,0 +1,13 @@
+{
+  "name": "@verdict/engine",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "dependencies": {
+    "@verdict/llm": "workspace:*",
+    "@verdict/schema": "workspace:*",
+    "playwright": "1.63.0",
+    "zod": "4.6.5"
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "name": "verdict",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Browser-verification executor: checks a preview deploy against plain-English acceptance criteria and returns a machine-readable verdict.",
+  "type": "module",
+  "packageManager": "pnpm@12.5.1",
+  "engines": {
+    "node": ">=20.12"
+  },
+  "scripts": {
+    "verdict": "tsx apps/worker/src/cli.ts",
+    "test": "vitest run",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts",
+    "typecheck": "tsc -p tsconfig.json",
+    "setup:browsers": "pnpm --filter @verdict/worker exec playwright install chromium"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "4.23.15",
+    "typescript": "7.0.2",
+    "vitest": "5.0.1"
+  }
+}
