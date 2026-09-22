@@ -29,6 +29,8 @@ export class GeminiClient implements LlmClient {
   private readonly ai: GoogleGenAI;
   private readonly thinkingLevel: GeminiThinkingLevel | undefined;
   private readonly log: LogFn;
+  /** Set if the API rejects our response schema; later calls fall back to plain JSON mode. */
+  private schemaRejected = false;
 
   constructor(options: GeminiClientOptions) {
     if (!options.apiKey) throw new LlmError("GEMINI_API_KEY is empty", null);
@@ -47,14 +49,34 @@ export class GeminiClient implements LlmClient {
   }
 
   async complete(request: LlmRequest): Promise<LlmResponse> {
+    try {
+      return await this.generate(request, !this.schemaRejected);
+    } catch (err) {
+      // If this model rejects the JSON Schema (HTTP 400 mentioning the schema), retry once in
+      // plain JSON mode. Safe because the engine validates every reply with zod anyway.
+      const cause = err instanceof LlmError ? err.cause : undefined;
+      const schemaProblem =
+        request.jsonSchema !== undefined &&
+        !this.schemaRejected &&
+        err instanceof LlmError &&
+        err.status === 400 &&
+        cause instanceof Error &&
+        /schema/i.test(cause.message);
+      if (!schemaProblem) throw err;
+      this.schemaRejected = true;
+      this.log("llm_schema_fallback", { provider: this.provider, model: this.model, purpose: request.purpose });
+      return this.generate(request, false);
+    }
+  }
+
+  private async generate(request: LlmRequest, useSchema: boolean): Promise<LlmResponse> {
     // Temperature is deliberately left at the provider default: Gemini 3 docs warn that values
     // below 1.0 can cause looping. Verdict stability comes from deterministic signals (D-2).
     const config: GenerateContentConfig = {
       systemInstruction: request.system,
       ...(request.maxOutputTokens !== undefined ? { maxOutputTokens: request.maxOutputTokens } : {}),
-      ...(request.jsonSchema
-        ? { responseMimeType: "application/json", responseJsonSchema: toGeminiJsonSchema(request.jsonSchema) }
-        : {}),
+      ...(request.jsonSchema ? { responseMimeType: "application/json" } : {}),
+      ...(request.jsonSchema && useSchema ? { responseJsonSchema: toGeminiJsonSchema(request.jsonSchema) } : {}),
       ...(this.thinkingLevel ? { thinkingConfig: { thinkingLevel: THINKING[this.thinkingLevel] } } : {}),
       ...(request.signal ? { abortSignal: request.signal } : {}),
     };

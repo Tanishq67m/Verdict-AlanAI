@@ -83,3 +83,23 @@ describe("FakeLlmClient", () => {
     expect(fake.callsFor("plan")).toHaveLength(2);
   });
 });
+
+describe("GeminiClient schema fallback", () => {
+  it("retries once without responseJsonSchema when the API rejects the schema, then stays in JSON mode", async () => {
+    const { ApiError } = await import("@google/genai");
+    const client = new GeminiClient({ apiKey: "k" });
+    const configs: Array<Record<string, unknown>> = [];
+    // Replace the SDK call; `ai` is private, so reach it through an index signature for this test only.
+    const internal = client as unknown as { ai: { models: { generateContent: (p: { config: Record<string, unknown> }) => Promise<unknown> } } };
+    internal.ai.models.generateContent = async (p) => {
+      configs.push(p.config);
+      if ("responseJsonSchema" in p.config) throw new ApiError({ message: "Invalid JSON payload: responseJsonSchema is not supported", status: 400 });
+      return { text: '{"ok":true}', usageMetadata: { promptTokenCount: 5, candidatesTokenCount: 2, totalTokenCount: 7 }, candidates: [] };
+    };
+    const req = { purpose: "plan" as const, system: "s", user: "u", jsonSchema: { type: "object" } };
+    expect((await client.complete(req)).text).toBe('{"ok":true}');
+    await client.complete(req);
+    expect(configs.map((c) => "responseJsonSchema" in c)).toEqual([true, false, false]);
+    expect(configs.every((c) => c["responseMimeType"] === "application/json")).toBe(true);
+  });
+});
