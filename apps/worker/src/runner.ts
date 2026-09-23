@@ -10,6 +10,7 @@ import {
 } from "@verdict/engine";
 import { createLlmFromEnv } from "@verdict/llm";
 import type { TaskSpec } from "@verdict/schema";
+import { writeReport } from "./report/html.ts";
 import { eventPulseReset } from "./resets/eventpulse.ts";
 
 /** Bad configuration (env vars, unknown reset adapter). Reported as a usage error, never as a verdict. */
@@ -50,7 +51,7 @@ export interface ExecuteOptions {
 }
 
 /** Everything needed to run a spec, wired from environment variables. Shared by the CLI and the API. */
-export async function executeSpec(spec: TaskSpec, env: Env, options: ExecuteOptions): Promise<RunResult & { runId: string }> {
+export async function executeSpec(spec: TaskSpec, env: Env, options: ExecuteOptions): Promise<RunResult & { runId: string; reportPath: string }> {
   const runId = options.runId ?? newRunId();
   const redactor = new Redactor(secretsFromSpec(spec));
   const requested = env["VERDICT_LOG_LEVEL"] ?? "info";
@@ -73,6 +74,7 @@ export async function executeSpec(spec: TaskSpec, env: Env, options: ExecuteOpti
     launch: { headless: !options.headed, ...(executablePath ? { executablePath } : {}) },
     ...(beforeAttempt ? { beforeAttempt } : {}),
   });
-  logger.info("artifacts_written", { path: result.artifactsPath });
-  return { ...result, runId };
+  const reportPath = await writeReport(result.verdict, result.attempts, result.artifactsPath);
+  logger.info("artifacts_written", { path: result.artifactsPath, report: reportPath });
+  return { ...result, runId, reportPath };
 }
