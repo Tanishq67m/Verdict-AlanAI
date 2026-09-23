@@ -1,8 +1,8 @@
 import { existsSync } from "node:fs";
 import { parseArgs } from "node:util";
-import { createLogger, newRunId, Redactor, runVerification, secretsFromSpec, type LogLevel } from "@verdict/engine";
 import { createLlmFromEnv, LlmError } from "@verdict/llm";
 import { loadSpecFile, SpecError, type Result } from "@verdict/schema";
+import { ConfigError, executeSpec } from "./runner.ts";
 
 export const USAGE = `Verdict: check a web app against plain-English acceptance criteria.
 
@@ -30,8 +30,6 @@ export interface Io {
   stderr: (text: string) => void;
   env: NodeJS.ProcessEnv;
 }
-
-const LOG_LEVELS = new Set<string>(["debug", "info", "warn", "error"]);
 
 export async function main(argv: readonly string[], io: Io): Promise<number> {
   const [command, ...rest] = argv;
@@ -81,31 +79,17 @@ export async function main(argv: readonly string[], io: Io): Promise<number> {
 
   try {
     const spec = await loadSpecFile(values.spec, { env, baseUrl: values.url });
-    const redactor = new Redactor(secretsFromSpec(spec));
-    const requestedLevel = env["VERDICT_LOG_LEVEL"] ?? "info";
-    const level: LogLevel = LOG_LEVELS.has(requestedLevel) ? (requestedLevel as LogLevel) : "info";
-    const runId = newRunId();
-    const logger = createLogger({ redactor, level, base: { run_id: runId }, write: (line) => io.stderr(`${line}\n`) });
-    const { client, price } = createLlmFromEnv(env, (event, fields) => logger.info(event, fields));
-    const executablePath = env["PLAYWRIGHT_CHROMIUM_EXECUTABLE"];
-
-    const { verdict, artifactsPath } = await runVerification({
-      runId,
-      spec,
+    const { verdict } = await executeSpec(spec, env, {
       criterionIds: values.criterion ?? [],
-      llm: client,
-      price,
-      redactor,
-      logger,
-      artifactsDir: values["artifacts-dir"],
       commit: values.commit ?? null,
-      launch: { headless: !values.headed, ...(executablePath ? { executablePath } : {}) },
+      artifactsDir: values["artifacts-dir"],
+      headed: values.headed,
+      writeLog: (line) => io.stderr(`${line}\n`),
     });
     io.stdout(`${JSON.stringify(verdict, null, 2)}\n`);
-    logger.info("artifacts_written", { path: artifactsPath });
     return EXIT_CODES[verdict.status];
   } catch (err) {
-    if (err instanceof SpecError || err instanceof LlmError) {
+    if (err instanceof SpecError || err instanceof LlmError || err instanceof ConfigError) {
       io.stderr(`${err.message}\n`);
       return EXIT_USAGE;
     }

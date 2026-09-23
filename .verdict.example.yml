@@ -10,6 +10,10 @@ auth:
 criteria:
   - id: book-ticket
     check: A logged-in user can book one ticket for "Verdict Demo Night" and sees a confirmation.
+  - id: seat-count
+    check: When a logged-in user books one ticket for "Verdict Demo Night", the number of remaining seats shown for that event drops by exactly 1.
+  - id: sold-out
+    check: For the sold-out event "Verdict Sold Out Night", a logged-in user cannot book a ticket because the ticket option or booking button is disabled.
 limits:
   max_steps_per_criterion: 15
   timeout_seconds: 300
