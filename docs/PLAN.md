@@ -63,23 +63,33 @@ Read at commit `7f672d7`.
 | C-7 | Run status: any `fail` → `fail`, else any `error` → `error`, else any `inconclusive` → `inconclusive`, else `pass`. | The PRD doesn't define the roll-up. |
 | C-8 | Milestone 1 evidence links are local `file://` paths; `commit` is optional. | No artifact store until Milestone 2. |
 | C-9 | The LLM gets page **text** (structured snapshot), not screenshots; screenshots are evidence. | Cost and stability. |
-| C-10 | Benchmark bugs in the backend need their own backend (per-branch backend + CORS fix, or a fully local stack per bug branch). Decided in Milestone 3. | §5: previews share one backend. |
+| C-10 | Verification in CI runs against a full EventPulse stack started inside the CI runner for the PR's commit, not against a Vercel preview. | §5: previews share one backend, so backend bugs would never be tested. |
 
 ---
 
 ## 7. Roadmap
 
-### Milestone 1 — one criterion, locally ✅
-Workspace scaffold; zod schemas for task spec and verdict; Gemini client; observe → act → judge loop with hybrid judging, limits and evidence; `pnpm verdict run` CLI; unit and end-to-end tests; a real run against local EventPulse (see `NOTES.md`).
+| # | What gets built | What it proves |
+|---|---|---|
+| **1** ✅ | One criterion on a real app from the CLI | End to end on a real flow (login, booking, confirmation), decided by hard evidence |
+| **2** | A full task (3 criteria), flake handling, test-data reset, redirect-loop detection, a small HTTP API | Results are trustworthy: failures are confirmed, flakiness is reported as such, and Verdict's own problems are never blamed on the app |
+| **3** | GitHub Action on EventPulse pull requests, one PR comment updated in place, a static HTML run report, re-run failed criteria only | The full loop on a real repo: PR goes red with a repair hint, fix goes green |
+| **4** | Six seeded bugs (B1–B6), benchmark runner, results table, demo video | It catches real bugs, and how often: catch rate, false-fail rate, stability, latency, cost |
 
-### Milestone 2 — full engine and API
-Multiple criteria; flake handling (retry a transient step once, re-run a failed criterion in a fresh context, disagreement → `inconclusive`); repair hints from the strongest signal; Fastify API (`POST /v1/runs` with `Idempotency-Key`, `GET /v1/runs/{id}`, `/healthz`); BullMQ on Redis; Postgres via Prisma; artifact upload and redacted Playwright traces; `docker-compose.yml` for the whole stack.
+### Milestone 2 — details
+- Three criteria in one run (`book-ticket`, `seat-count`, `sold-out`), each attempt in a fresh browser.
+- Flake handling: a transient step error retries once; a failed criterion re-runs once in a fresh browser; fail + fail → `fail`, fail + anything else → `inconclusive` (both observations kept).
+- Test-data reset before every attempt (`VERDICT_RESET=eventpulse`: cancels the test user's bookings via EventPulse's API). Configured on the worker, never in the spec.
+- Redirect loops within one action are a hard `fail` signal (catches B6).
+- A 429 from the app turns a non-pass into `error` (the test run was throttled; not an app bug).
+- HTTP API: `POST /v1/runs` with `Idempotency-Key`, `GET /v1/runs/{id}`, `GET /healthz`. Runs execute one at a time; runs are stored as JSON files and credentials are never persisted.
+- Deliberately not in Milestone 2: Postgres, BullMQ, object storage, docker-compose. The store and queue are small interfaces that can be swapped when there is more than one worker.
 
-### Milestone 3 — GitHub loop and deploy
-GitHub Action on `deployment_status: success` (reads `.verdict.yml`, sets a check, updates one PR comment in place); `POST /v1/runs/{id}/rerun` for failed criteria only; API and worker deployed to Render or Fly.io; decision on C-10.
+### Milestone 3 — details
+The GitHub Action starts EventPulse (web + API + Postgres) inside the CI runner for the PR's commit and runs Verdict against it. Nothing needs to be hosted, and backend changes are tested too, which resolves C-10. The Action sets a check status, updates a single PR comment in place, and uploads a static HTML report (steps + screenshots) as a build artifact. Re-running only failed criteria uses the previous verdict.
 
-### Milestone 4 — prove it
-Seed bugs B1–B6 as patches; `bench/run.ts` runs each bug 3× and clean main 5×; raw logs and a summary (catch rate, false-fail rate, stability, p50/p95 latency, cost) in `bench/results/`; README with architecture, benchmark table (only measured numbers) and a 3-command quickstart.
+### Milestone 4 — details
+Bugs B1–B6 as patches on EventPulse; `bench/run.ts` runs each bug 3× and clean main 5×; raw logs and a summary table in `bench/results/`; README table uses only those numbers; a 2-minute demo video.
 
 ---
 
@@ -88,8 +98,8 @@ Seed bugs B1–B6 as patches; `bench/run.ts` runs each bug 3× and clean main 5�
 ```text
 verdict/
 ├── apps/
-│   ├── api/                 Fastify: runs, idempotency, auth, rate limits
-│   └── worker/              CLI + BullMQ consumer: runs the browser loop
+│   ├── api/                 Fastify: runs, idempotency, API key
+│   └── worker/              CLI + shared runner + test-data reset adapters
 ├── packages/
 │   ├── schema/              zod: task spec + verdict (v1)
 │   ├── engine/
@@ -102,8 +112,6 @@ verdict/
 │   └── github/              check status + single PR comment
 ├── action/                  GitHub Action
 ├── bench/                   bugs B1–B6, runner, results
-├── prisma/schema.prisma
-├── docker-compose.yml
 ├── .verdict.example.yml
 ├── docs/                    PRD.md, PLAN.md
 ├── NOTES.md                 per-milestone notes with real output

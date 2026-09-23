@@ -172,3 +172,64 @@ Observations from the trace, for M2:
 5. **Test data reset.** The one-booking-per-user rule means `book-ticket` can only pass once per account. M2 needs a reset step (cancel the test user's bookings via EventPulse's API) before each run, or a fresh test user per run.
 6. **Default model and thinking level.** `gemini-3.5-flash-lite` is the default on cost grounds. The first real runs should decide whether it plans reliably or whether `gemini-3.7-flash` (or `GEMINI_THINKING_LEVEL=low`) is worth the cost.
 7. **The PRD's example verdict is abbreviated.** Its summary says 3 criteria but the array shows 1. Our schema requires the full list; confirm that's the intended contract.
+
+---
+
+## Milestone 2: full task, trustworthy results, HTTP API
+
+### What was built
+
+| Area | What changed |
+|---|---|
+| Spec | `.verdict.example.yml` now has three criteria: `book-ticket`, `seat-count`, `sold-out` |
+| Flake handling | A transient step error retries once (500 ms). A failed criterion re-runs once in a fresh browser: fail + fail → `fail` ("confirmed by a second attempt"); fail + anything else → `inconclusive` with both observations |
+| Test-data reset | `VERDICT_RESET=eventpulse`: before every attempt, logs in to EventPulse's API as the test user (once per run) and cancels their active bookings. Configured on the worker, never in the spec |
+| Redirect loops | Main-frame navigations are counted per action; the same page 3+ times while bouncing between pages → hard `fail` naming the pages (catches B6) |
+| Rate limits | A 429 from the app during an attempt turns a non-pass into `error` (EventPulse allows 100 requests / 15 min per IP, 20 for auth) |
+| Planner | Rules from the first real run: no `wait_for` before an assertion on the same thing; read → act → re-read → assert for value changes; assert disabled controls directly |
+| HTTP API | `pnpm api`: `POST /v1/runs` (Idempotency-Key: replay on same body, 409 on a different body), `GET /v1/runs/{id}`, `GET /healthz`, bearer API key. Runs execute one at a time; stored as JSON files; credentials never written to disk |
+| Artifacts | Per attempt: `<criterion>-attempt<N>-steps.json`, `<criterion>-attempt<N>-step<K>.png` |
+
+Deliberately not built: Postgres, BullMQ, object storage, docker-compose. One browser per worker is the real throughput limit; the store and queue are small interfaces that can be swapped later.
+
+### What was verified by actually running it
+
+**Unit tests + typecheck** (Linux arm64, Node 22):
+```
+ Test Files  11 passed (11)
+      Tests  105 passed (105)
+$ tsc -p tsconfig.json          (no errors)
+```
+New: judging order with a redirect loop, EventPulse reset against a fake API (only active bookings cancelled, one login per run, 429 explained), API idempotency (replay, 409, one execution), auth, validation, credentials never on disk.
+
+**End-to-end in real Chromium** against the fixture app with a scripted LLM, 13/13 passing on 3 consecutive runs:
+```
+ ✓ passes on a working app via a DOM assertion; the LLM judge is never asked
+ ✓ B1-style: a JS error on click fails via the console signal (confirmed by a second attempt)
+ ✓ a 500 from the booking API fails via the network signal
+ ✓ a missing confirmation fails via the final DOM assertion
+ ✓ asks the LLM judge only when the planner concludes without any deterministic check
+ ✓ logs in with placeholders: real credentials reach the browser but never the LLM, logs or artifacts
+ ✓ blocks navigation to other hosts (egress allowlist) and reports it to the planner
+ ✓ returns inconclusive when the step budget runs out
+ ✓ maps invalid LLM output to error (Verdict's fault), never fail
+ ✓ B6-style: a redirect loop after an action fails with the loop named
+ ✓ flaky: a failure that doesn't repeat on a fresh-browser rerun is inconclusive, never a silent pick
+ ✓ a 429 from the app turns a non-pass into error (test environment, not an app bug)
+ ✓ a failing test-data reset is an error, and the browser flow never starts
+```
+
+**The real API process** (`pnpm api`, then curl):
+```
+GET  /healthz                         → {"ok":true,"queued":0}
+POST /v1/runs (Idempotency-Key K)     → 202 {"run_id":"run_cd2a1910","status":"queued",…}
+POST /v1/runs (same K, same body)     → 200 (replayed, same run_id)
+GET  /v1/runs/run_cd2a1910            → status "done", verdict status "error"
+                                        (no Chromium on the test machine: correctly reported as a
+                                        Verdict/environment error, not an app failure)
+grep for the test password in runs/ and the API log → 0 matches
+```
+
+### Real runs against local EventPulse: PENDING
+
+Three-criterion task, 3 consecutive runs, with `VERDICT_RESET=eventpulse`. Results to be pasted here.

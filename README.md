@@ -4,7 +4,7 @@
 
 > Coding agents produce changes faster than anyone can verify them. A green CI run proves the code compiles and the unit tests pass, not that the feature behaves as the task intended. Verdict turns "someone should click through this" into a step inside the agent loop: **verify → diagnose → hand back a repair hint → re-run.**
 
-**Status:** Milestone 1 of 4 complete: single-criterion runs from the CLI, verified against a real app. See the [roadmap](#roadmap).
+**Status:** Milestone 1 complete; Milestone 2 (full task, flake handling, HTTP API) built and tested, real-run results in [`NOTES.md`](NOTES.md). See the [roadmap](#roadmap).
 
 ---
 
@@ -20,9 +20,10 @@ Each criterion runs as a bounded **observe → act → judge** loop in a fresh C
 |---|---|---|---|
 | 1 | Network | `POST /api/bookings` returns 500 | Yes → `fail` |
 | 2 | Console | Uncaught `TypeError` after a click | Yes → `fail` |
-| 3 | DOM assertion | "Booking Confirmed!" is visible | Yes → `pass` / `fail` |
-| 4 | Step budget / timeout | No decision in 15 steps | Yes → `inconclusive` |
-| 5 | LLM judgment | "The confirmation is clearly shown" | Only when 1–4 are silent |
+| 3 | Redirect loop | One click bounces `/login` ↔ `/events` | Yes → `fail` |
+| 4 | DOM assertion | "Booking Confirmed!" is visible | Yes → `pass` / `fail` |
+| 5 | Step budget / timeout | No decision in 15 steps | Yes → `inconclusive` |
+| 6 | LLM judgment | "The confirmation is clearly shown" | Only when 1–5 are silent |
 
 The agent that drives the browser never grades itself: the LLM judge is a separate call, made only when every deterministic signal is silent.
 
@@ -56,6 +57,13 @@ flowchart LR
 | `inconclusive` | No decision within the step budget or timeout | `3` |
 
 Keeping `error` separate from `fail` stops an agent from "fixing" correct code because a browser crashed or an LLM provider was down.
+
+### Trustworthy failures
+
+- **A failure must reproduce.** A failed criterion is re-run once in a fresh browser. Fail + fail → `fail`; if the second attempt disagrees, the result is `inconclusive` with both observations, never a silent pick.
+- **Transient steps retry once** (element detached, navigation race) before the agent hears about it.
+- **Clean test data every attempt.** A reset hook runs before each attempt (for EventPulse: cancel the test user's bookings), configured on the worker, never by the spec a pull request controls.
+- **Throttling isn't a bug.** If the app rate-limits the test run (HTTP 429), a non-pass becomes `error`, not `fail`.
 
 ---
 
@@ -135,6 +143,24 @@ pnpm verdict run --spec .verdict.example.yml --url http://localhost:3000 > verdi
 
 stdout carries only the verdict JSON; structured JSON logs (one line per step, tagged with `run_id`) go to stderr. Screenshots and step traces are written to `artifacts/<run_id>/`.
 
+**HTTP API** (task in, verdict out):
+
+```bash
+pnpm api                                    # listens on 127.0.0.1:8787, key from VERDICT_API_KEY
+
+curl -X POST localhost:8787/v1/runs \
+  -H "Authorization: Bearer $VERDICT_API_KEY" \
+  -H "Idempotency-Key: event-Manager:a1b2c3d:spec-v1" \
+  -H "Content-Type: application/json" \
+  -d '{"spec": { …same fields as .verdict.yml… }, "commit": "a1b2c3d"}'
+# → 202 { "run_id": "run_…", "status": "queued" }
+
+curl localhost:8787/v1/runs/run_… -H "Authorization: Bearer $VERDICT_API_KEY"
+# → { "status": "done", "verdict": { … } }
+```
+
+The same `Idempotency-Key` with the same body returns the existing run (a retried webhook never starts a second browser run); the same key with a different body is a `409`. Credentials in the request are used in memory and never written to disk.
+
 | Command | What it does |
 |---|---|
 | `pnpm test` | Unit tests: no browser, no network, no API key |
@@ -162,7 +188,9 @@ Verdict drives a real browser against pages it doesn't control, with test creden
 
 ```text
 verdict/
-├── apps/worker/              CLI: `pnpm verdict run`
+├── apps/
+│   ├── worker/               CLI (`pnpm verdict run`), shared runner, test-data reset
+│   └── api/                  HTTP API (`pnpm api`): runs, idempotency, API key
 ├── packages/
 │   ├── schema/               zod: task spec v1 + verdict v1, YAML loader
 │   ├── engine/
@@ -185,8 +213,8 @@ TypeScript end to end, strict mode, zod at every boundary (spec in, LLM reply in
 ## Roadmap
 
 - [x] **Milestone 1:** one criterion, locally: schemas, observe → act → judge loop, hybrid judging, evidence, CLI, unit + e2e tests, a real run
-- [ ] **Milestone 2:** multiple criteria, flake handling (retry, fresh-context rerun, disagreement → `inconclusive`), Fastify API with idempotency keys, BullMQ + Postgres, artifact upload with redacted Playwright traces, `docker compose up`
-- [ ] **Milestone 3:** GitHub Action on `deployment_status` (check status + one PR comment updated in place), re-run failed criteria only, hosted API and worker
+- [ ] **Milestone 2:** full task (3 criteria), flake handling (retry, fresh-browser rerun, disagreement → `inconclusive`), test-data reset, redirect-loop detection, HTTP API with idempotency keys
+- [ ] **Milestone 3:** GitHub Action on EventPulse pull requests: EventPulse runs inside CI for the PR's commit, a check status, one PR comment updated in place, a static HTML run report, re-run failed criteria only
 - [ ] **Milestone 4:** seeded-bug benchmark on EventPulse (6 bugs × 3 runs, clean main × 5): catch rate, false-fail rate, stability, p50/p95 latency, cost per run
 
 ## Documentation
