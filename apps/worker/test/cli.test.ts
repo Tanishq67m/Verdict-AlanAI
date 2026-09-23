@@ -30,7 +30,7 @@ describe("verdict CLI", () => {
     const spec = join(dir, "spec.yml");
     await writeFile(spec, "version: 1\ntask: t\nbase_url: ${PREVIEW_URL}\ncriteria:\n  - id: a\n    check: Something visible happens.\n");
     const t = io({});
-    expect(await main(["run", "--spec", spec, "--env-file", join(dir, "none.env")], t.io)).toBe(EXIT_USAGE);
+    expect(await main(["run", "--spec", spec, "--dotenv", join(dir, "none.env")], t.io)).toBe(EXIT_USAGE);
     expect(t.err.join("")).toContain("Missing environment variable(s): PREVIEW_URL");
   });
 
@@ -39,7 +39,7 @@ describe("verdict CLI", () => {
     const spec = join(dir, "spec.yml");
     await writeFile(spec, "version: 1\ntask: t\nbase_url: http://localhost:3000\ncriteria:\n  - id: a\n    check: Something visible happens.\n");
     const t = io({});
-    expect(await main(["run", "--spec", spec, "--env-file", join(dir, "none.env")], t.io)).toBe(EXIT_USAGE);
+    expect(await main(["run", "--spec", spec, "--dotenv", join(dir, "none.env")], t.io)).toBe(EXIT_USAGE);
     expect(t.err.join("")).toContain("GEMINI_API_KEY is not set");
   });
 

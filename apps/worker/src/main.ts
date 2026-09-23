@@ -15,7 +15,7 @@ Options:
   --criterion <id>         Run only this criterion (repeatable). Default: all
   --commit <sha>           Commit being verified (recorded in the verdict)
   --artifacts-dir <dir>    Where screenshots and traces go (default: artifacts)
-  --env-file <file>        Env file to load if present (default: .env)
+  --dotenv <file>          Env file to load if present (default: .env)
   --headed                 Show the browser window
   -h, --help               Show this help
 
@@ -54,7 +54,7 @@ export async function main(argv: readonly string[], io: Io): Promise<number> {
         criterion: { type: "string", multiple: true },
         commit: { type: "string" },
         "artifacts-dir": { type: "string", default: "artifacts" },
-        "env-file": { type: "string", default: ".env" },
+        "dotenv": { type: "string", default: ".env" },
         headed: { type: "boolean", default: false },
         help: { type: "boolean", short: "h", default: false },
       },
@@ -73,7 +73,7 @@ export async function main(argv: readonly string[], io: Io): Promise<number> {
   }
 
   // Secrets come from the environment only. .env is a local convenience; real env vars win.
-  const envFile = values["env-file"];
+  const envFile = values["dotenv"];
   if (envFile && existsSync(envFile)) process.loadEnvFile(envFile);
   const env = io.env;
 

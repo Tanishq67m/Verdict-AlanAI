@@ -83,7 +83,7 @@ runs:
         # CRITERIA_FLAGS is built by the plan step from spec ids (validated as [a-z0-9-]).
         # shellcheck disable=SC2086
         pnpm verdict run --spec "$SPEC_PATH" --url "$APP_URL" --commit "$COMMIT" \
-          --artifacts-dir "$RUNNER_TEMP/verdict" --env-file "$RUNNER_TEMP/no-env-file" $CRITERIA_FLAGS \
+          --artifacts-dir "$RUNNER_TEMP/verdict" $CRITERIA_FLAGS \
           > "$RUNNER_TEMP/verdict.json" 2> >(tee "$RUNNER_TEMP/verdict.log" >&2)
         code=$?
         echo "exit_code=$code" >> "$GITHUB_OUTPUT"
