@@ -171,7 +171,7 @@ export async function runCriterion(input: CriterionRunInput): Promise<CriterionR
       invalidStreak = 0;
 
       const { action } = plan;
-      const ref = "ref" in action ? action.ref : action.type === "assert" && "ref" in action.assertion ? action.assertion.ref : null;
+      const ref = refOf(action);
       const target = ref ? describeRef(observation.content, ref) : null;
       const actionCtx = () => ({ page, baseUrl: spec.base_url, allowedHosts: input.allowedHosts, secrets: input.secrets, timeoutMs: actionTimeout(), settle });
       let outcome = await executeAction(action, actionCtx());
@@ -185,7 +185,7 @@ export async function runCriterion(input: CriterionRunInput): Promise<CriterionR
       }
 
       if (outcome.kind === "assertion") {
-        assertions.push({ step, final: action.type === "assert" && action.final, passed: outcome.passed, expected: outcome.expected, observed: outcome.observed });
+        assertions.push({ step, final: action.type === "assert" && action.final, passed: outcome.passed, expected: labelRef(outcome.expected, ref, target), observed: labelRef(outcome.observed, ref, target) });
         record({ step, thought: plan.thought, action, target, ok: true, outcome: `${outcome.passed ? "PASSED" : "FAILED"}: ${outcome.observed}` });
       } else if (outcome.kind === "conclude") {
         conclusion = outcome.summary;
@@ -224,7 +224,7 @@ export async function runCriterion(input: CriterionRunInput): Promise<CriterionR
     describeStep: (n) => {
       const s = byStep.get(n);
       if (!s?.action) return null;
-      return `${describeAction(s.action)}${s.target ? ` on ${s.target}` : ""}`;
+      return labelRef(describeAction(s.action), refOf(s.action), s.target);
     },
     askLlm: async () => {
       const observation = await observe();
@@ -256,4 +256,20 @@ export async function runCriterion(input: CriterionRunInput): Promise<CriterionR
 
   logger.info("criterion_decided", { result: decision.result, decided_by: decision.decidedBy, stop, steps: steps.length });
   return { decision, stop, steps };
+}
+
+function refOf(action: Action): string | null {
+  if ("ref" in action) return action.ref;
+  if (action.type === "assert" && "ref" in action.assertion) return action.assertion.ref;
+  return null;
+}
+
+/**
+ * Human-facing text (verdict, PR comment, repair hint) names elements by what a reviewer sees
+ * ('button "Confirm Booking"'), not by snapshot refs like f1e241 that mean nothing outside the run.
+ * The planner's own history keeps the refs, because it needs them to act.
+ */
+export function labelRef(text: string, ref: string | null, target: string | null): string {
+  if (!ref || !target) return text;
+  return text.replace(new RegExp(`\\b${ref}\\b`, "g"), target);
 }
