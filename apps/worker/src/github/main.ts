@@ -77,7 +77,15 @@ export async function report(env: Env, verdictPath: string, log: (s: string) => 
   try {
     verdict = VerdictV1Schema.parse(JSON.parse(await readFile(verdictPath, "utf8")));
   } catch {
-    const body = `${COMMENT_MARKER}\n### Verdict: ⚠️ could not run\nVerdict didn't produce a verdict (configuration or setup problem, not an app failure). See the ${runUrl ? `[CI run](${runUrl})` : "CI log"}.`;
+    // Show the reason (config errors are one-line messages; the CLI already redacts secrets).
+    let reason = "";
+    if (env["VERDICT_LOG"]) {
+      const lines = (await readFile(env["VERDICT_LOG"], "utf8").catch(() => "")).split("\n").filter((l) => l.trim() && !l.startsWith("$ "));
+      const tail = lines.filter((l) => !l.startsWith("{")).slice(-5);
+      if (tail.length) reason = `\n\n\`\`\`\n${tail.join("\n").slice(0, 1500)}\n\`\`\``;
+    }
+    log(`Verdict produced no verdict.${reason ? ` Reason:${reason}` : ""}`);
+    const body = `${COMMENT_MARKER}\n### Verdict: ⚠️ could not run\nVerdict didn't produce a verdict (configuration or setup problem, not an app failure). See the ${runUrl ? `[CI run](${runUrl})` : "CI log"}.${reason}`;
     if (gh && pr !== null) await gh.upsertComment(pr, COMMENT_MARKER, body);
     if (env["GITHUB_STEP_SUMMARY"]) await appendFile(env["GITHUB_STEP_SUMMARY"], `${body}\n`);
     await setOutput(env, "status", "error");

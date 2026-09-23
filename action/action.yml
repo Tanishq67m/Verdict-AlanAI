@@ -84,8 +84,10 @@ runs:
         # shellcheck disable=SC2086
         pnpm verdict run --spec "$SPEC_PATH" --url "$APP_URL" --commit "$COMMIT" \
           --artifacts-dir "$RUNNER_TEMP/verdict" --env-file "$RUNNER_TEMP/no-env-file" $CRITERIA_FLAGS \
-          > "$RUNNER_TEMP/verdict.json"
-        echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+          > "$RUNNER_TEMP/verdict.json" 2> >(tee "$RUNNER_TEMP/verdict.log" >&2)
+        code=$?
+        echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+        if [ "$code" = "64" ]; then echo "::error title=Verdict configuration::$(tail -n 3 "$RUNNER_TEMP/verdict.log" | tr '\n' ' ')"; fi
         exit 0
 
     - name: Upload report
@@ -112,4 +114,5 @@ runs:
         VERDICT_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
         VERDICT_REPORT_URL: ${{ steps.upload.outputs.artifact-url }}
         VERDICT_SPEC_IDS: ${{ steps.plan.outputs.spec_ids }}
+        VERDICT_LOG: ${{ runner.temp }}/verdict.log
       run: pnpm exec tsx apps/worker/src/github/main.ts report "$RUNNER_TEMP/verdict.json"

@@ -155,3 +155,15 @@ describe("action steps", () => {
     expect(await plan(env, () => {}, { fetchImpl: gh.fetchImpl })).toEqual([]); // no trusted previous run → check everything
   });
 });
+
+describe("could-not-run diagnostics", () => {
+  it("includes the CLI's reason (non-JSON stderr lines) in the comment", async () => {
+    const gh = fakeGitHub();
+    const { dir, env } = await actionEnv();
+    const logPath = join(dir, "verdict.log");
+    await writeFile(logPath, `$ tsx apps/worker/src/cli.ts run\n{"level":"info","event":"x"}\nGEMINI_API_KEY is not set. Add it to .env (see .env.example).\n`);
+    expect(await report({ ...env, VERDICT_LOG: logPath }, join(dir, "missing.json"), () => {}, { fetchImpl: gh.fetchImpl })).toBe(1);
+    expect(gh.comments[0]!.body).toContain("GEMINI_API_KEY is not set");
+    expect(gh.comments[0]!.body).not.toContain('"level"');
+  });
+});
