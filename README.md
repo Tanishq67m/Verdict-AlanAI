@@ -27,25 +27,7 @@ Each criterion runs as a bounded **observe → act → judge** loop in a fresh C
 
 The agent that drives the browser never grades itself: the LLM judge is a separate call, made only when every deterministic signal is silent.
 
-```mermaid
-flowchart LR
-    Spec[".verdict.yml<br/>criteria + limits"] --> CLI["verdict run"]
-    CLI --> Loop
-    subgraph Engine
-      Loop["observe → act → judge<br/>(per criterion, fresh context)"]
-      Obs["Observer<br/>aria snapshot"]
-      Exec["Executor<br/>closed action set"]
-      Sig["Signals<br/>network · console"]
-      Judge["Hybrid judge"]
-      Loop --> Obs & Exec & Judge
-      Sig --> Judge
-    end
-    Exec <--> App["App under test<br/>(real Chromium)"]
-    Obs <--> App
-    App --> Sig
-    Loop <--> LLM["LLM client<br/>(Gemini, provider-agnostic)"]
-    Judge --> Verdict["verdict.json<br/>+ screenshot + step trace"]
-```
+![How one Verdict check runs](docs/architecture.png)
 
 ### Four results, on purpose
 
