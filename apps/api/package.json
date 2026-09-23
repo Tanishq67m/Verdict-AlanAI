@@ -1,0 +1,13 @@
+{
+  "name": "@verdict/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@verdict/engine": "workspace:*",
+    "@verdict/schema": "workspace:*",
+    "@verdict/worker": "workspace:*",
+    "fastify": "5.12.5",
+    "zod": "4.6.5"
+  }
+}

@@ -7,3 +7,4 @@ artifacts/
 coverage/
 .DS_Store
 /verdict.json
+runs/
