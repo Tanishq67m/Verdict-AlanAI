@@ -72,7 +72,7 @@ Read at commit `7f672d7`.
 | # | What gets built | What it proves |
 |---|---|---|
 | **1** ✅ | One criterion on a real app from the CLI | End to end on a real flow (login, booking, confirmation), decided by hard evidence |
-| **2** | A full task (3 criteria), flake handling, test-data reset, redirect-loop detection, a small HTTP API | Results are trustworthy: failures are confirmed, flakiness is reported as such, and Verdict's own problems are never blamed on the app |
+| **2** ✅ | A full task (3 criteria), flake handling, test-data reset, redirect-loop detection, a small HTTP API | Results are trustworthy: failures are confirmed, flakiness is reported as such, and Verdict's own problems are never blamed on the app |
 | **3** | GitHub Action on EventPulse pull requests, one PR comment updated in place, a static HTML run report, re-run failed criteria only | The full loop on a real repo: PR goes red with a repair hint, fix goes green |
 | **4** | Six seeded bugs (B1–B6), benchmark runner, results table, demo video | It catches real bugs, and how often: catch rate, false-fail rate, stability, latency, cost |
 

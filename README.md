@@ -4,7 +4,7 @@
 
 > Coding agents produce changes faster than anyone can verify them. A green CI run proves the code compiles and the unit tests pass, not that the feature behaves as the task intended. Verdict turns "someone should click through this" into a step inside the agent loop: **verify → diagnose → hand back a repair hint → re-run.**
 
-**Status:** Milestone 1 complete; Milestone 2 (full task, flake handling, HTTP API) built and tested, real-run results in [`NOTES.md`](NOTES.md). See the [roadmap](#roadmap).
+**Status:** Milestones 1–2 complete: a three-criterion task against a real app, with flake handling, test-data reset and an HTTP API. See the [roadmap](#roadmap).
 
 ---
 
@@ -119,13 +119,17 @@ On its own, the agent signed in, found the event, selected the free ticket tier,
 
 ### Measured so far
 
-| Metric | Value | Notes |
-|---|---|---|
-| Real runs | 1 (`book-ticket`, clean build) | Catch rate and stability come from the seeded-bug benchmark (Milestone 4) |
-| Duration | 29.1 s | 10 steps, 9 LLM calls |
-| Tokens | 21,192 | `gemini-3.5-flash-lite` |
-| Cost | $0.0076 | Tokens × Gemini's published paid price; actual spend $0 on the free tier |
-| Decided by | DOM assertion | LLM judge not called |
+Three-criterion task (`book-ticket`, `seat-count`, `sold-out`) against EventPulse running locally, 3 consecutive runs on a clean build:
+
+| Metric | Value |
+|---|---|
+| Results | 9/9 pass, same status on every run |
+| Decided by | DOM assertion in all 9 (LLM judge never needed) |
+| Duration | 99–109 s per run (mean 104.8 s) |
+| Cost | $0.024–$0.026 per run (mean $0.0249) at Gemini's published paid price; actual spend $0 on the free tier |
+| False fails | 0 across all 27 criterion results in the development runs, including runs hit by provider outages and rate limits (reported as `error`, never `fail`) |
+
+Catch rate on seeded bugs comes from the Milestone 4 benchmark.
 
 No number in this README is estimated. Benchmark results will be added only from `bench/results/`.
 
@@ -213,7 +217,7 @@ TypeScript end to end, strict mode, zod at every boundary (spec in, LLM reply in
 ## Roadmap
 
 - [x] **Milestone 1:** one criterion, locally: schemas, observe → act → judge loop, hybrid judging, evidence, CLI, unit + e2e tests, a real run
-- [ ] **Milestone 2:** full task (3 criteria), flake handling (retry, fresh-browser rerun, disagreement → `inconclusive`), test-data reset, redirect-loop detection, HTTP API with idempotency keys
+- [x] **Milestone 2:** full task (3 criteria), flake handling (retry, fresh-browser rerun, disagreement → `inconclusive`), test-data reset, redirect-loop detection, HTTP API with idempotency keys
 - [ ] **Milestone 3:** GitHub Action on EventPulse pull requests: EventPulse runs inside CI for the PR's commit, a check status, one PR comment updated in place, a static HTML run report, re-run failed criteria only
 - [ ] **Milestone 4:** seeded-bug benchmark on EventPulse (6 bugs × 3 runs, clean main × 5): catch rate, false-fail rate, stability, p50/p95 latency, cost per run
 

@@ -272,4 +272,24 @@ Three consecutive runs of the three-criterion task, `gemini-3.5-flash-lite`, `VE
 1. **Provider retry:** an attempt that dies on a transient LLM-provider error (429 or 5xx) is retried once after a 20 s pause. A non-transient provider error (e.g. 400 bad key) is not retried. This is separate from the flake rule: it's about Verdict's infrastructure, not the app.
 2. **Test environment:** EventPulse's API rate limits are made configurable (`RATE_LIMIT_MAX`, `AUTH_RATE_LIMIT_MAX`, defaults unchanged) so a test environment can raise them. That's a change in the EventPulse repo, not in Verdict.
 
-### Real runs against local EventPulse, round 3: PENDING
+### Real runs against local EventPulse, round 3 (23 Sept 2026)
+
+EventPulse's API rate limits raised for the test environment (`RATE_LIMIT_MAX=2000`, `AUTH_RATE_LIMIT_MAX=500`). Three consecutive runs, ~2 minutes apart:
+
+| Run | book-ticket | seat-count | sold-out | Status | Duration | Cost (list price) |
+|---|---|---|---|---|---|---|
+| 1 | pass | pass | pass | pass | 109.1 s | $0.0243 |
+| 2 | pass | pass | pass | pass | 106.3 s | $0.0265 |
+| 3 | pass | pass | pass | pass | 99.0 s | $0.0238 |
+
+**9/9 pass, identical run status on all three runs.** Every pass was decided by a DOM assertion (`"Booking Confirmed!"` visible; the events list reads `"1/40 registered"` after one booking; `"SOLD OUT"` / `"Sales Closed"` visible). Mean: 104.8 s and $0.0249 per three-criterion run (≈ 35 s and $0.008 per criterion).
+
+### Milestone 2 summary across all rounds
+
+| | Round 1 | Round 2 | Round 3 |
+|---|---|---|---|
+| Criterion results | 6 pass, 1 error, 2 inconclusive | 6 pass, 3 error | 9 pass |
+| False fails | 0 | 0 | 0 |
+| Cause of non-passes | Gemini 15/min quota; two planner mistakes (caught by the rerun rule) | EventPulse rate limit; Gemini 503 | – |
+
+Across 27 criterion results, Verdict never reported `fail` on a working app. That's the property Milestone 2 was for. What these runs do **not** measure yet is catching real bugs; that's the Milestone 4 benchmark.
