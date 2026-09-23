@@ -1,0 +1,115 @@
+name: Verdict
+description: Check a running web app against plain-English acceptance criteria in a real browser, and report the verdict on the pull request.
+author: Tanishq Mohod
+branding:
+  icon: check-circle
+  color: green
+
+inputs:
+  url:
+    description: Base URL of the running app to verify (e.g. http://localhost:3000).
+    required: true
+  spec:
+    description: Path to the task spec, relative to the repository root.
+    default: .verdict.yml
+  gemini-api-key:
+    description: Google AI Studio API key used by the planner and judge.
+    required: true
+  model:
+    description: Gemini model id (optional; defaults to Verdict's default).
+    default: ""
+  fail-on:
+    description: Comma-separated results that fail the check. Default fail; stricter setups use fail,inconclusive.
+    default: fail
+  only-failed:
+    description: "true = on a new push, re-check only the criteria that didn't pass last time and carry the passes over (labelled). Faster, but passes aren't re-verified."
+    default: "false"
+  reset:
+    description: Test-data reset adapter to run before every attempt (supported, eventpulse). Empty = none.
+    default: ""
+  reset-api-url:
+    description: API base URL for the reset adapter.
+    default: ""
+  github-token:
+    description: Token used to create/update the PR comment.
+    default: ${{ github.token }}
+
+outputs:
+  status:
+    description: Overall result, pass | fail | error | inconclusive.
+    value: ${{ steps.report.outputs.status }}
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 22
+
+    - name: Install Verdict and Chromium
+      shell: bash
+      working-directory: ${{ github.action_path }}/..
+      run: |
+        npm install -g pnpm@12.5.1
+        pnpm install --frozen-lockfile
+        pnpm --filter @verdict/worker exec playwright install --with-deps chromium
+
+    - name: Plan which criteria to check
+      id: plan
+      shell: bash
+      working-directory: ${{ github.action_path }}/..
+      env:
+        INPUT_SPEC: ${{ github.workspace }}/${{ inputs.spec }}
+        INPUT_URL: ${{ inputs.url }}
+        INPUT_ONLY_FAILED: ${{ inputs.only-failed }}
+        INPUT_GITHUB_TOKEN: ${{ inputs.github-token }}
+      run: pnpm exec tsx apps/worker/src/github/main.ts plan
+
+    - name: Run Verdict
+      id: run
+      shell: bash
+      working-directory: ${{ github.action_path }}/..
+      env:
+        SPEC_PATH: ${{ github.workspace }}/${{ inputs.spec }}
+        APP_URL: ${{ inputs.url }}
+        COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+        CRITERIA_FLAGS: ${{ steps.plan.outputs.criteria }}
+        GEMINI_API_KEY: ${{ inputs.gemini-api-key }}
+        GEMINI_MODEL: ${{ inputs.model }}
+        VERDICT_RESET: ${{ inputs.reset }}
+        VERDICT_RESET_API_URL: ${{ inputs.reset-api-url }}
+      run: |
+        set +e
+        # CRITERIA_FLAGS is built by the plan step from spec ids (validated as [a-z0-9-]).
+        # shellcheck disable=SC2086
+        pnpm verdict run --spec "$SPEC_PATH" --url "$APP_URL" --commit "$COMMIT" \
+          --artifacts-dir "$RUNNER_TEMP/verdict" --env-file "$RUNNER_TEMP/no-env-file" $CRITERIA_FLAGS \
+          > "$RUNNER_TEMP/verdict.json"
+        echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+        exit 0
+
+    - name: Upload report
+      id: upload
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: verdict-report
+        path: ${{ runner.temp }}/verdict
+        if-no-files-found: warn
+        retention-days: 14
+
+    - name: Report on the pull request
+      id: report
+      if: always()
+      shell: bash
+      working-directory: ${{ github.action_path }}/..
+      env:
+        INPUT_SPEC: ${{ github.workspace }}/${{ inputs.spec }}
+        INPUT_URL: ${{ inputs.url }}
+        INPUT_ONLY_FAILED: ${{ inputs.only-failed }}
+        INPUT_FAIL_ON: ${{ inputs.fail-on }}
+        INPUT_GITHUB_TOKEN: ${{ inputs.github-token }}
+        VERDICT_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+        VERDICT_REPORT_URL: ${{ steps.upload.outputs.artifact-url }}
+        VERDICT_SPEC_IDS: ${{ steps.plan.outputs.spec_ids }}
+      run: pnpm exec tsx apps/worker/src/github/main.ts report "$RUNNER_TEMP/verdict.json"
