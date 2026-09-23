@@ -10,7 +10,7 @@ const llmPass: LlmJudgment = { result: "pass", expected: "Confirmation shown", o
 function input(overrides: Partial<JudgeInput> = {}): JudgeInput {
   return {
     criterion,
-    signals: { consoleErrors: [], failedRequests: [] },
+    signals: { consoleErrors: [], failedRequests: [], redirectLoops: [] },
     assertions: [],
     stop: "concluded",
     stepsTaken: 6,
@@ -32,7 +32,7 @@ describe("hybrid judging order", () => {
     const llm = new FakeLlmClient({});
     const askLlm = vi.fn(async (): Promise<LlmJudgment> => JSON.parse((await llm.complete({ purpose: "judge", system: "", user: "" })).text));
 
-    const d = await judge(input({ signals: { consoleErrors: [consoleError], failedRequests: [] }, askLlm }));
+    const d = await judge(input({ signals: { consoleErrors: [consoleError], failedRequests: [], redirectLoops: [] }, askLlm }));
 
     expect(d).toMatchObject({ result: "fail", decidedBy: "console", failingStep: 5 });
     expect(d.observed).toContain("TypeError");
@@ -42,14 +42,14 @@ describe("hybrid judging order", () => {
   });
 
   it("a console error overrides a passing DOM assertion (signals outrank the DOM)", async () => {
-    const d = await judge(input({ signals: { consoleErrors: [consoleError], failedRequests: [] }, assertions: [passedFinal] }));
+    const d = await judge(input({ signals: { consoleErrors: [consoleError], failedRequests: [], redirectLoops: [] }, assertions: [passedFinal] }));
     expect(d).toMatchObject({ result: "fail", decidedBy: "console" });
   });
 
   it("a 5xx from the app forces fail before console and DOM, without the LLM", async () => {
     const askLlm = vi.fn(async () => llmPass);
     const d = await judge(
-      input({ signals: { consoleErrors: [consoleError], failedRequests: [serverError] }, assertions: [passedFinal], askLlm }),
+      input({ signals: { consoleErrors: [consoleError], failedRequests: [serverError], redirectLoops: [] }, assertions: [passedFinal], askLlm }),
     );
     expect(d).toMatchObject({ result: "fail", decidedBy: "network", failingStep: 5 });
     expect(d.observed).toContain("POST http://localhost:5001/api/bookings → HTTP 500");
@@ -59,9 +59,18 @@ describe("hybrid judging order", () => {
 
   it("a request with no response is a network failure too", async () => {
     const refused = { ...serverError, status: null, failure: "net::ERR_CONNECTION_REFUSED" };
-    const d = await judge(input({ signals: { consoleErrors: [], failedRequests: [refused] } }));
+    const d = await judge(input({ signals: { consoleErrors: [], failedRequests: [refused], redirectLoops: [] } }));
     expect(d).toMatchObject({ result: "fail", decidedBy: "network" });
     expect(d.observed).toContain("net::ERR_CONNECTION_REFUSED");
+  });
+
+  it("a redirect loop forces fail (B6) before DOM checks and without the LLM", async () => {
+    const askLlm = vi.fn(async () => llmPass);
+    const loop = { step: 4, paths: ["/auth/login", "/events", "/auth/login", "/events", "/auth/login"] };
+    const d = await judge(input({ signals: { consoleErrors: [], failedRequests: [], redirectLoops: [loop] }, assertions: [passedFinal], askLlm }));
+    expect(d).toMatchObject({ result: "fail", decidedBy: "redirect_loop", failingStep: 4 });
+    expect(d.observed).toContain("/auth/login ↔ /events");
+    expect(askLlm).not.toHaveBeenCalled();
   });
 
   it("a failed final DOM assertion forces fail without the LLM", async () => {

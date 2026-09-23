@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { FakeLlmClient, type FakeReply } from "@verdict/llm/testing";
 import type { LlmRequest } from "@verdict/llm";
 import { VerdictV1Schema, type TaskSpec } from "@verdict/schema";
-import { Redactor, runVerification, secretsFromSpec, silentLogger } from "../src/index.ts";
+import { Redactor, runVerification, secretsFromSpec, silentLogger, type RunOptions } from "../src/index.ts";
 import { FIXTURE_USER, startFixtureApp, type FixtureBug } from "./fixtures/app.ts";
 
 const launch = process.env["PLAYWRIGHT_CHROMIUM_EXECUTABLE"] ? { executablePath: process.env["PLAYWRIGHT_CHROMIUM_EXECUTABLE"] } : {};
@@ -37,7 +37,12 @@ function spec(url: string, extra: Partial<TaskSpec> = {}): TaskSpec {
   };
 }
 
-async function run(bug: FixtureBug, script: ConstructorParameters<typeof FakeLlmClient>[0], extra: Partial<TaskSpec> = {}) {
+async function run(
+  bug: FixtureBug,
+  script: ConstructorParameters<typeof FakeLlmClient>[0],
+  extra: Partial<TaskSpec> = {},
+  opts: Pick<RunOptions, "beforeAttempt" | "rerunFailures"> = {},
+) {
   app = await startFixtureApp(bug);
   const s = spec(app.url, extra);
   const llm = new FakeLlmClient(script);
@@ -49,6 +54,7 @@ async function run(bug: FixtureBug, script: ConstructorParameters<typeof FakeLlm
     logger: silentLogger,
     artifactsDir: await mkdtemp(join(tmpdir(), "verdict-e2e-")),
     launch,
+    ...opts,
   });
   expect(VerdictV1Schema.safeParse(out.verdict).success).toBe(true);
   const c = out.verdict.criteria[0]!;
@@ -60,31 +66,32 @@ describe("engine end to end (real Chromium, scripted LLM)", () => {
     const { c, llm, verdict } = await run("none", { plan: [clickBook, assertConfirmed, conclude] });
     expect(c.result).toBe("pass");
     expect(c.failing_step).toBeNull();
-    expect(c.evidence.screenshot_url).toMatch(/^file:\/\/.+book-ticket-step\d+\.png$/);
+    expect(c.evidence.screenshot_url).toMatch(/^file:\/\/.+book-ticket-attempt1-step\d+\.png$/);
     expect(llm.callsFor("judge")).toHaveLength(0);
     expect(app!.bookings()).toBe(1);
     expect(verdict.cost.llm_tokens).toBe(330); // 3 planner calls x 110 fake tokens
   });
 
   it("B1-style: a JS error on click fails via the console signal, before any assertion or LLM judgment", async () => {
-    const { c, llm } = await run("js-error", { plan: [clickBook] });
+    const { c, llm } = await run("js-error", { plan: [clickBook, clickBook] });
     expect(c.result).toBe("fail");
     expect(c.failing_step).toBe(2);
     expect(c.evidence.console_errors[0]).toMatch(/\[step 2\] Uncaught TypeError/);
     expect(c.observed).toContain('button "Confirm Booking"');
-    expect(llm.callsFor("plan")).toHaveLength(1);
+    expect(c.observed).toContain("confirmed by a second attempt");
+    expect(llm.callsFor("plan")).toHaveLength(2); // one planner call per attempt, then the signal decides
     expect(llm.callsFor("judge")).toHaveLength(0);
   });
 
   it("a 500 from the booking API fails via the network signal", async () => {
-    const { c } = await run("api-500", { plan: [clickBook] });
+    const { c } = await run("api-500", { plan: [clickBook, clickBook] });
     expect(c.result).toBe("fail");
     expect(c.evidence.failed_requests).toEqual([{ method: "POST", url: expect.stringMatching(/\/api\/bookings$/), status: 500, failure: null }]);
     expect(c.repair_hint).toContain("/api/bookings returned 500");
   });
 
   it("a missing confirmation fails via the final DOM assertion", async () => {
-    const { c, llm } = await run("no-confirmation", { plan: [clickBook, assertConfirmed] });
+    const { c, llm } = await run("no-confirmation", { plan: [clickBook, assertConfirmed, clickBook, assertConfirmed] });
     expect(c.result).toBe("fail");
     expect(c.failing_step).toBe(3);
     expect(c.observed).toContain('"Booking Confirmed!" is not visible');
@@ -111,7 +118,7 @@ describe("engine end to end (real Chromium, scripted LLM)", () => {
       assertConfirmed,
       conclude,
     ];
-    const { c, llm, artifactsPath, steps } = await run("none", { plan: loginPlan }, { auth });
+    const { c, llm, artifactsPath, attempts } = await run("none", { plan: loginPlan }, { auth });
     expect(c.result).toBe("pass");
 
     const everythingSentToLlm = llm.calls.map((x) => x.system + x.user).join("\n");
@@ -126,16 +133,16 @@ describe("engine end to end (real Chromium, scripted LLM)", () => {
       expect(text).not.toContain(FIXTURE_USER.password);
       expect(text).not.toContain(FIXTURE_USER.email);
     }
-    expect(steps["book-ticket"]!.find((s) => s.action?.type === "type" && s.action.text === "{{auth.password}}")).toBeTruthy();
+    expect(attempts["book-ticket"]![0]!.steps.find((s) => s.action?.type === "type" && s.action.text === "{{auth.password}}")).toBeTruthy();
   });
 
   it("blocks navigation to other hosts (egress allowlist) and reports it to the planner", async () => {
     const judgment = JSON.stringify({ result: "inconclusive", expected: "x", observed: "y", reason: "z" });
-    const { steps, llm } = await run("none", {
+    const { attempts, llm } = await run("none", {
       plan: [plan("Leave", { type: "navigate", url: "http://169.254.169.254/latest/meta-data" }), conclude],
       judge: [judgment],
     });
-    const blocked = steps["book-ticket"]![1]!;
+    const blocked = attempts["book-ticket"]![0]!.steps[1]!;
     expect(blocked.ok).toBe(false);
     expect(blocked.outcome).toMatch(/Blocked: 169\.254\.169\.254 is not an allowed host/);
     expect(llm.callsFor("plan")[1]!.user).toContain("Blocked");
@@ -155,4 +162,42 @@ describe("engine end to end (real Chromium, scripted LLM)", () => {
     expect(c.observed).toMatch(/3 invalid actions in a row/);
     expect(c.repair_hint).toMatch(/not an app failure/);
   });
+
+  it("B6-style: a redirect loop after an action fails with the loop named", async () => {
+    const { c, llm } = await run("redirect-loop", { plan: [clickBook, clickBook] });
+    expect(c.result).toBe("fail");
+    expect(c.observed).toMatch(/Redirect loop between .*\/login.*\/events\/demo|Redirect loop between .*\/events\/demo.*\/login/);
+    expect(c.repair_hint).toMatch(/route guards/);
+    expect(llm.callsFor("judge")).toHaveLength(0);
+  });
+
+  it("flaky: a failure that doesn't repeat on a fresh-browser rerun is inconclusive, never a silent pick", async () => {
+    const resets: number[] = [];
+    const { c, attempts } = await run(
+      "flaky",
+      { plan: [clickBook, clickBook, assertConfirmed, conclude] },
+      {},
+      { beforeAttempt: async ({ attempt }) => void resets.push(attempt) },
+    );
+    expect(c.result).toBe("inconclusive");
+    expect(c.observed).toMatch(/Attempt 1 failed: .*HTTP 500.*Attempt 2 \(fresh browser\) was pass/);
+    expect(c.repair_hint).toMatch(/^Flaky behavior/);
+    expect(attempts["book-ticket"]!.map((a) => [a.result, a.decided_by])).toEqual([["fail", "network"], ["pass", "dom"]]);
+    expect(resets).toEqual([1, 2]); // test data is reset before every attempt
+  });
+
+  it("a 429 from the app turns a non-pass into error (test environment, not an app bug)", async () => {
+    const { c, attempts } = await run("rate-limited", { plan: [clickBook, assertConfirmed] });
+    expect(c.result).toBe("error");
+    expect(c.observed).toMatch(/rate-limited this test run \(HTTP 429/);
+    expect(attempts["book-ticket"]).toHaveLength(1); // errors are not re-run as if they were app failures
+  });
+
+  it("a failing test-data reset is an error, and the browser flow never starts", async () => {
+    const { c, llm } = await run("none", { plan: [] }, {}, { beforeAttempt: async () => { throw new Error("API unreachable"); } });
+    expect(c.result).toBe("error");
+    expect(c.observed).toBe("Test-data reset failed: API unreachable");
+    expect(llm.calls).toHaveLength(0);
+  });
 });
+

@@ -14,7 +14,7 @@ export interface AssertionRecord {
 export type StopReason = "concluded" | "final_assertion_failed" | "hard_signal" | "step_budget" | "timeout";
 
 /** Which signal decided the result, in the PRD's order of trust. */
-export type DecidedBy = "network" | "console" | "dom" | "step_budget" | "timeout" | "llm";
+export type DecidedBy = "network" | "console" | "redirect_loop" | "dom" | "step_budget" | "timeout" | "llm";
 
 export interface Decision {
   result: Result;
@@ -56,6 +56,7 @@ function after(step: number, describe: JudgeInput["describeStep"]): string {
  * Hybrid judging (PRD → "Hybrid judging, in order of trust"), highest trust first:
  *   1. network  – a 5xx / failed request to the app            → fail
  *   2. console  – an uncaught exception / app console.error    → fail
+ *   2b. loop    – the app redirected in a loop during one action → fail
  *   3. DOM      – final assertions: any failed → fail, all passed → pass
  *   4. budget   – no decision within the step budget / timeout → inconclusive
  *   5. LLM      – only when all of the above are silent
@@ -89,6 +90,19 @@ export async function judge(input: JudgeInput): Promise<Decision> {
       observed: `${consoleError.text} ${after(consoleError.step, describeStep)}`,
       failingStep: Math.max(1, consoleError.step),
       repairHint: `The page logged "${consoleError.text.slice(0, 160)}" ${after(consoleError.step, describeStep)}. Find the component or handler behind that action and the code path that throws.`,
+    };
+  }
+
+  const loop = signals.redirectLoops[0];
+  if (loop) {
+    const cycle = [...new Set(loop.paths)].join(" ↔ ");
+    return {
+      result: "fail",
+      decidedBy: "redirect_loop",
+      expected: "Each action settles on one page",
+      observed: `Redirect loop between ${cycle} ${after(loop.step, describeStep)} (${loop.paths.join(" → ")})`,
+      failingStep: Math.max(1, loop.step),
+      repairHint: `The app keeps redirecting between ${cycle}. Check the auth/route guards on those pages: one of them redirects to the other while the other redirects back (often a session or token check that never succeeds).`,
     };
   }
 

@@ -170,7 +170,16 @@ export async function runCriterion(input: CriterionRunInput): Promise<CriterionR
       const { action } = plan;
       const ref = "ref" in action ? action.ref : action.type === "assert" && "ref" in action.assertion ? action.assertion.ref : null;
       const target = ref ? describeRef(observation.content, ref) : null;
-      const outcome = await executeAction(action, { page, baseUrl: spec.base_url, allowedHosts: input.allowedHosts, secrets: input.secrets, timeoutMs: actionTimeout(), settle });
+      const actionCtx = () => ({ page, baseUrl: spec.base_url, allowedHosts: input.allowedHosts, secrets: input.secrets, timeoutMs: actionTimeout(), settle });
+      let outcome = await executeAction(action, actionCtx());
+      // PRD flake handling, step level: a transient failure (element detached, navigation race)
+      // is retried once after a short wait before the planner hears about it.
+      if (outcome.kind === "error" && outcome.transient && remaining() > 1_000) {
+        logger.info("step_retry", { step, reason: redactor.redact(outcome.message) });
+        await page.waitForTimeout(500);
+        outcome = await executeAction(action, actionCtx());
+        if (outcome.kind === "ok") outcome = { ...outcome, note: `${outcome.note} (after 1 retry)` };
+      }
 
       if (outcome.kind === "assertion") {
         assertions.push({ step, final: action.type === "assert" && action.final, passed: outcome.passed, expected: outcome.expected, observed: outcome.observed });
