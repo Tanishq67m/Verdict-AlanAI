@@ -4,7 +4,7 @@
 
 > Coding agents produce changes faster than anyone can verify them. A green CI run proves the code compiles and the unit tests pass, not that the feature behaves as the task intended. Verdict turns "someone should click through this" into a step inside the agent loop: **verify → diagnose → hand back a repair hint → re-run.**
 
-**Status:** Milestones 1–2 complete: a three-criterion task against a real app, with flake handling, test-data reset and an HTTP API. See the [roadmap](#roadmap).
+**Status:** Milestones 1–3 complete: Verdict runs on every EventPulse pull request, and on a real PR it caught a planted booking bug that compiled, deployed and passed CI. See the [roadmap](#roadmap).
 
 ---
 
@@ -111,7 +111,9 @@ Three-criterion task (`book-ticket`, `seat-count`, `sold-out`) against EventPuls
 | Cost | $0.024–$0.026 per run (mean $0.0249) at Gemini's published paid price; actual spend $0 on the free tier |
 | False fails | 0 across all 27 criterion results in the development runs, including runs hit by provider outages and rate limits (reported as `error`, never `fail`) |
 
-Catch rate on seeded bugs comes from the Milestone 4 benchmark.
+**On a real pull request** (EventPulse PR #1, GitHub Actions): a PR that crashed booking for first-time users (`null` from `localStorage`) turned the check red. `book-ticket` and `seat-count` failed on the uncaught `TypeError` at "Confirm Booking", decided by the console signal and confirmed by a second fresh-browser attempt; `sold-out` passed. The Vercel preview for the same commit was green. After the one-line fix, the same PR comment flipped to 3/3 pass. Clean `main`: 3/3 pass in 78 s for $0.021. Details in [`NOTES.md`](NOTES.md#milestone-3-the-pull-request-loop).
+
+Catch rate across many seeded bugs comes from the Milestone 4 benchmark.
 
 No number in this README is estimated. Benchmark results will be added only from `bench/results/`.
 
@@ -220,7 +222,7 @@ TypeScript end to end, strict mode, zod at every boundary (spec in, LLM reply in
 
 - [x] **Milestone 1:** one criterion, locally: schemas, observe → act → judge loop, hybrid judging, evidence, CLI, unit + e2e tests, a real run
 - [x] **Milestone 2:** full task (3 criteria), flake handling (retry, fresh-browser rerun, disagreement → `inconclusive`), test-data reset, redirect-loop detection, HTTP API with idempotency keys
-- [ ] **Milestone 3:** GitHub Action on EventPulse pull requests: EventPulse runs inside CI for the PR's commit, a check status, one PR comment updated in place, a static HTML run report, re-run failed criteria only
+- [x] **Milestone 3:** GitHub Action on EventPulse pull requests: EventPulse runs inside CI for the PR's commit, a check status, one PR comment updated in place, a static HTML run report, re-run failed criteria only
 - [ ] **Milestone 4:** seeded-bug benchmark on EventPulse (6 bugs × 3 runs, clean main × 5): catch rate, false-fail rate, stability, p50/p95 latency, cost per run
 
 ## Documentation

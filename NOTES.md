@@ -316,4 +316,22 @@ Design choices: the app runs inside CI for the PR's own commit instead of on a V
 - **Unit tests:** 120 passing. New: PR comment content and escaping, hidden-data round trip, one comment created then updated in place, forged (non-bot) comments ignored, `fail-on` exit codes, "could not run" when no verdict exists, `only-failed` plan + carry-over, self-contained HTML report (screenshot inlined, text escaped, no external assets).
 - **Workflow steps** run by hand in a Linux container with Postgres 16: `npm ci` succeeded. Prisma engine downloads are blocked in that sandbox, so migrations, the seed script and the builds are verified for the first time by the real GitHub run below.
 
-### Real GitHub runs: PENDING
+### Real GitHub runs (23 Sept 2026)
+
+EventPulse repo, GitHub-hosted `ubuntu-latest`, the full stack built from each commit inside the runner.
+
+| Run | Commit | Check | Result | Verdict time | Cost |
+|---|---|---|---|---|---|
+| `main`, manual run | `21cf5da` | ✅ | 3/3 pass | 78 s | $0.021 |
+| PR #1 "Remember ticket quantity for returning users" | planted bug | ❌ | `book-ticket` fail, `seat-count` fail, `sold-out` pass | ~3 min job | n/a |
+| Same PR, fix pushed | fix commit | ✅ | 3/3 pass, same comment updated in place | 1 m 45 s step (2 m 59 s job) | n/a |
+
+**The planted bug.** The PR remembers a user's usual ticket quantity in `localStorage`, but reads it with `JSON.parse(localStorage.getItem(...))` and then `previous.count`. For a first-time user that value is `null`, so clicking **Confirm Booking** throws. The code compiles, the Vercel preview deploys green, and nothing in unit tests touches it.
+
+**What Verdict did.** In both booking criteria the agent signed in, opened the event, chose the free tier and clicked Confirm Booking (step 8). The page threw `Uncaught TypeError: Cannot read properties of null (reading 'count')`, and the console signal decided `fail` on its own: no LLM judgment involved. A second attempt in a fresh browser failed the same way, so both were reported as confirmed fails with a repair hint pointing at the Confirm Booking handler. `sold-out` never books, so it correctly passed. After the one-line fix (`?? '{"count":0}'`) the same PR comment flipped to all green.
+
+**What only the real CI run found** (all fixed):
+1. EventPulse's Prisma migrations are behind `schema.prisma` (a column added without a migration). The workflow now uses `prisma db push` for its throwaway database.
+2. The CLI's `--env-file` flag was intercepted by Node through `tsx` and killed the run in 0 s. Renamed to `--dotenv`. The action now also shows the stderr tail when no verdict is produced, which is how this was diagnosed.
+3. Internal snapshot refs (`f1e241`) leaked into human text. Verdicts and PR comments now name the element (`click button "Confirm Booking"`); the planner's own history keeps refs.
+
