@@ -157,6 +157,26 @@ Options: `--criterion <id>` (repeatable), `--commit <sha>`, `--artifacts-dir <di
 
 ---
 
+## On every pull request (GitHub Action)
+
+Verdict ships as a GitHub Action. The app's own workflow builds the PR's code (database, API, web) inside the runner and hands the URL to Verdict, so every PR is verified against its own backend too, with nothing to host.
+
+```yaml
+- uses: Tanishq67m/Verdict-AlanAI/action@main
+  with:
+    url: http://localhost:3000
+    gemini-api-key: ${{ secrets.GEMINI_API_KEY }}
+```
+
+- **A check** that fails when a criterion fails (`fail-on`, default `fail`).
+- **One PR comment, updated in place** on every push: results, what Verdict saw, and repair hints.
+- **A self-contained HTML report** (every step, screenshots inlined) uploaded as the `verdict-report` artifact.
+- **`only-failed: true`** re-checks only what failed last time and carries earlier passes over, labelled with the commit they came from.
+
+See [`action/README.md`](action/README.md) and EventPulse's [workflow](https://github.com/Tanishq67m/Event-Manager/blob/main/.github/workflows/verdict.yml) for a complete setup.
+
+---
+
 ## Safety
 
 Verdict drives a real browser against pages it doesn't control, with test credentials, so these are built in rather than bolted on:

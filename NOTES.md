@@ -293,3 +293,27 @@ EventPulse's API rate limits raised for the test environment (`RATE_LIMIT_MAX=20
 | Cause of non-passes | Gemini 15/min quota; two planner mistakes (caught by the rerun rule) | EventPulse rate limit; Gemini 503 | – |
 
 Across 27 criterion results, Verdict never reported `fail` on a working app. That's the property Milestone 2 was for. What these runs do **not** measure yet is catching real bugs; that's the Milestone 4 benchmark.
+
+---
+
+## Milestone 3: the pull-request loop
+
+### What was built
+
+| Where | What |
+|---|---|
+| `action/action.yml` | Composite GitHub Action: installs Verdict + Chromium, plans which criteria to run, runs Verdict, uploads the report, reports on the PR, fails the check per `fail-on` |
+| `apps/worker/src/github/` | PR comment rendering, a single comment updated in place (found by a hidden marker, bot-authored only), hidden previous-run data for `only-failed`, job summary, exit code |
+| `apps/worker/src/report/html.ts` | Self-contained `report.html` per run: every criterion, attempt and step, with the decision screenshot inlined. Written for CLI and API runs too |
+| EventPulse `.github/workflows/verdict.yml` | Builds the PR's EventPulse (Postgres service, migrations, seed, API + web production build) inside the runner, then runs the Verdict action |
+| EventPulse `apps/api/scripts/seed-verdict.mjs` | Idempotent test data: attendee, organizer, "Verdict Demo Night" (40 free seats), "Verdict Sold Out Night" (sold out); refuses to run without `VERDICT_SEED=1` |
+| EventPulse `.verdict.yml` | The three criteria, owned by the app repo |
+
+Design choices: the app runs inside CI for the PR's own commit instead of on a Vercel preview (previews share one production backend, so backend changes would never be tested); nothing to host; throwaway secrets generated per run; `NODE_ENV=production` only for the start step (setting it job-wide makes `npm ci` skip devDependencies and the build fails).
+
+### What was verified
+
+- **Unit tests:** 120 passing. New: PR comment content and escaping, hidden-data round trip, one comment created then updated in place, forged (non-bot) comments ignored, `fail-on` exit codes, "could not run" when no verdict exists, `only-failed` plan + carry-over, self-contained HTML report (screenshot inlined, text escaped, no external assets).
+- **Workflow steps** run by hand in a Linux container with Postgres 16: `npm ci` succeeded. Prisma engine downloads are blocked in that sandbox, so migrations, the seed script and the builds are verified for the first time by the real GitHub run below.
+
+### Real GitHub runs: PENDING
