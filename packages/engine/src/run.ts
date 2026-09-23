@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { costUsd, UsageMeter, type LlmClient, type Price } from "@verdict/llm";
+import { costUsd, LlmError, UsageMeter, type LlmClient, type Price } from "@verdict/llm";
 import {
   aggregateStatus,
   summarize,
@@ -48,6 +48,8 @@ export interface RunOptions {
   beforeAttempt?: BeforeAttemptHook;
   /** Re-run a failed criterion once in a fresh browser before reporting it (PRD flake handling). Default true. */
   rerunFailures?: boolean;
+  /** Pause before retrying an attempt that hit a transient LLM-provider error (default 20 s; tests use 0). */
+  providerRetryPauseMs?: number;
   /** Run id; generate it with newRunId() before creating the logger so every log line carries it. */
   runId?: string;
 }
@@ -57,6 +59,8 @@ export interface AttemptRecord {
   result: Result;
   decided_by: DecidedBy | "error";
   steps: StepRecord[];
+  /** True when the attempt died on a transient LLM-provider error (429/5xx), so a retry may succeed. */
+  transient_error?: boolean;
 }
 
 export interface RunResult {
@@ -70,6 +74,18 @@ export interface RunResult {
 const WATCHDOG_GRACE_MS = 15_000;
 /** Don't start a confirmation rerun with less than this left on the run clock. */
 const MIN_RERUN_BUDGET_MS = 30_000;
+/** Pause before retrying an attempt that died on a transient LLM-provider error. */
+const PROVIDER_RETRY_PAUSE_MS = 20_000;
+
+/** Provider hiccups (rate limit, overload, outage) that are worth one more try. */
+function isTransientProviderError(err: unknown): boolean {
+  let e: unknown = err;
+  while (e instanceof Error) {
+    if (e instanceof LlmError) return e.status === 429 || (e.status !== null && e.status >= 500);
+    e = e.cause;
+  }
+  return false;
+}
 
 export function newRunId(): string {
   return `run_${randomBytes(4).toString("hex")}`;
@@ -173,6 +189,7 @@ export async function runVerification(options: RunOptions): Promise<RunResult> {
     let verdict: CriterionVerdict;
     let steps: StepRecord[] = [];
     let decidedBy: AttemptRecord["decided_by"] = "error";
+    let transient = false;
     try {
       if (options.beforeAttempt) {
         try {
@@ -222,25 +239,34 @@ export async function runVerification(options: RunOptions): Promise<RunResult> {
       clog.info("attempt_done", { result: verdict.result, decided_by: decidedBy, ignored_signals: collector.ignoredCount });
     } catch (err) {
       const msg = redactor.redact(err instanceof Error ? err.message : String(err));
-      clog.error("attempt_error", { message: msg });
+      transient = isTransientProviderError(err);
+      clog.error("attempt_error", { message: msg, transient });
       verdict = errorVerdict(criterion.id, msg, evidenceFrom(collector.snapshot(), null));
     } finally {
       await context.close().catch(() => undefined);
     }
     await writeFile(join(artifactsPath, `${criterion.id}-attempt${attempt}-steps.json`), `${JSON.stringify(steps, null, 2)}\n`);
-    return { verdict, record: { attempt, result: verdict.result, decided_by: decidedBy, steps } };
+    return { verdict, record: { attempt, result: verdict.result, decided_by: decidedBy, steps, ...(transient ? { transient_error: true } : {}) } };
   };
 
   if (browser) {
     try {
       for (const criterion of selected) {
-        const first = await runAttempt(browser, criterion, 1);
+        let first = await runAttempt(browser, criterion, 1);
         const records = [first.record];
+        // Infrastructure retry (not the flake rule): the LLM provider was rate-limited or down.
+        // That says nothing about the app, so try the attempt once more after a pause.
+        if (first.record.transient_error && deadline - Date.now() > MIN_RERUN_BUDGET_MS + PROVIDER_RETRY_PAUSE_MS) {
+          logger.warn("provider_retry", { criterion_id: criterion.id, pause_ms: options.providerRetryPauseMs ?? PROVIDER_RETRY_PAUSE_MS });
+          await new Promise((r) => setTimeout(r, options.providerRetryPauseMs ?? PROVIDER_RETRY_PAUSE_MS));
+          first = await runAttempt(browser, criterion, records.length + 1);
+          records.push(first.record);
+        }
         let final = first.verdict;
         const canRerun = options.rerunFailures !== false && deadline - Date.now() > MIN_RERUN_BUDGET_MS;
         if (first.verdict.result === "fail" && canRerun) {
           logger.info("rerun_failed_criterion", { criterion_id: criterion.id });
-          const second = await runAttempt(browser, criterion, 2);
+          const second = await runAttempt(browser, criterion, records.length + 1);
           records.push(second.record);
           final = combineAttempts(first.verdict, second.verdict);
         } else if (first.verdict.result === "fail") {

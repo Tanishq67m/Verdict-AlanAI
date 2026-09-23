@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { FakeLlmClient, type FakeReply } from "@verdict/llm/testing";
-import type { LlmRequest } from "@verdict/llm";
+import { LlmError, type LlmRequest } from "@verdict/llm";
 import { VerdictV1Schema, type TaskSpec } from "@verdict/schema";
 import { Redactor, runVerification, secretsFromSpec, silentLogger, type RunOptions } from "../src/index.ts";
 import { FIXTURE_USER, startFixtureApp, type FixtureBug } from "./fixtures/app.ts";
@@ -41,7 +41,7 @@ async function run(
   bug: FixtureBug,
   script: ConstructorParameters<typeof FakeLlmClient>[0],
   extra: Partial<TaskSpec> = {},
-  opts: Pick<RunOptions, "beforeAttempt" | "rerunFailures"> = {},
+  opts: Pick<RunOptions, "beforeAttempt" | "rerunFailures" | "providerRetryPauseMs"> = {},
 ) {
   app = await startFixtureApp(bug);
   const s = spec(app.url, extra);
@@ -198,6 +198,25 @@ describe("engine end to end (real Chromium, scripted LLM)", () => {
     expect(c.result).toBe("error");
     expect(c.observed).toBe("Test-data reset failed: API unreachable");
     expect(llm.calls).toHaveLength(0);
+  });
+
+  it("retries once after a transient LLM-provider error (503), instead of reporting error", async () => {
+    const outage: FakeReply = () => {
+      throw new LlmError("Gemini request failed (HTTP 503): The service is currently unavailable.", 503);
+    };
+    const { c, attempts } = await run("none", { plan: [outage, clickBook, assertConfirmed, conclude] }, {}, { providerRetryPauseMs: 0 });
+    expect(c.result).toBe("pass");
+    expect(attempts["book-ticket"]!.map((a) => a.result)).toEqual(["error", "pass"]);
+    expect(attempts["book-ticket"]![0]!.transient_error).toBe(true);
+  });
+
+  it("does not retry a non-transient provider error (bad key)", async () => {
+    const badKey: FakeReply = () => {
+      throw new LlmError("Gemini request failed (HTTP 400): API key not valid", 400);
+    };
+    const { c, attempts } = await run("none", { plan: [badKey] }, {}, { providerRetryPauseMs: 0 });
+    expect(c.result).toBe("error");
+    expect(attempts["book-ticket"]).toHaveLength(1);
   });
 });
 

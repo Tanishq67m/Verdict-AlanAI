@@ -253,4 +253,23 @@ Three consecutive runs of the three-criterion task, `gemini-3.5-flash-lite`, `VE
 3. **Planner rules:** assert a confirmation where it appears before navigating; never navigate away from a "processing" state; don't wait for menu links or headings; for value changes, record the exact text and assert the same element in the same format.
 4. **Planner memory:** each history line now carries the planner's earlier reasoning (truncated), so values it read ("40 left") survive across stateless calls.
 
-### Real runs against local EventPulse, round 2: PENDING
+### Real runs against local EventPulse, round 2 (23 Sept 2026)
+
+| Run | book-ticket | seat-count | sold-out | Run status |
+|---|---|---|---|---|
+| 1 | **error** (EventPulse returned 429) | **error** (reset got 429) | **error** (reset got 429) | error |
+| 2 | pass | pass | pass | pass |
+| 3 | pass | **error** (Gemini HTTP 503, service unavailable) | pass | error |
+
+**0 false fails, 0 inconclusives in 9 results.** No planner mistakes this round: every non-pass was the test environment, and each was reported as `error` with the cause:
+
+- **Run 1:** rounds 1 and 2 together exceeded EventPulse's API rate limit (100 requests / 15 min per IP). Verdict recorded the underlying outcome and still refused to blame the app: *"The app rate-limited this test run (HTTP 429 on /api/events?limit=3 at step 6)… Underlying outcome: fail: Uncaught TypeError: Cannot read properties of undefined (reading 'filter')"*.
+- **Run 3:** Gemini returned 503 (provider outage) after the SDK's retries.
+
+**A real EventPulse bug surfaced along the way:** when the events API returns an error (here a 429), the events page crashes with `Uncaught TypeError: Cannot read properties of undefined (reading 'filter')` instead of showing an error state. The frontend assumes `data` is always present.
+
+**Fixes made from this round:**
+1. **Provider retry:** an attempt that dies on a transient LLM-provider error (429 or 5xx) is retried once after a 20 s pause. A non-transient provider error (e.g. 400 bad key) is not retried. This is separate from the flake rule: it's about Verdict's infrastructure, not the app.
+2. **Test environment:** EventPulse's API rate limits are made configurable (`RATE_LIMIT_MAX`, `AUTH_RATE_LIMIT_MAX`, defaults unchanged) so a test environment can raise them. That's a change in the EventPulse repo, not in Verdict.
+
+### Real runs against local EventPulse, round 3: PENDING
