@@ -61,7 +61,10 @@ const PLAN_MAX_OUTPUT_TOKENS = 1_024;
 function historyLine(r: StepRecord): string {
   const what = r.action ? describeAction(r.action) : "invalid action";
   const target = r.target ? ` [${r.target}]` : "";
-  return `${r.step}. ${what}${target} → ${r.ok ? "ok" : "ERROR"}: ${r.outcome}`;
+  // The planner is stateless between calls; its own earlier reasoning ("the page says 40 left")
+  // is how it remembers values it read. Truncated to keep prompts small.
+  const why = r.thought ? ` (reason: ${r.thought.slice(0, 200)})` : "";
+  return `${r.step}. ${what}${target}${why} → ${r.ok ? "ok" : "ERROR"}: ${r.outcome}`;
 }
 
 function parseJson(text: string): unknown {

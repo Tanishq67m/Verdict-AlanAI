@@ -1,5 +1,6 @@
 import { ApiError, GoogleGenAI, ThinkingLevel, type GenerateContentConfig } from "@google/genai";
 import { toGeminiJsonSchema } from "./jsonSchema.ts";
+import { sharedPacer, type MinutePacer } from "./pacer.ts";
 import { LlmError, type LlmClient, type LlmRequest, type LlmResponse, type LogFn } from "./types.ts";
 
 export const DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite";
@@ -11,6 +12,8 @@ export interface GeminiClientOptions {
   model?: string;
   /** Unset = the model's default. Gemini 3 docs recommend thinking_level over thinking_budget. */
   thinkingLevel?: GeminiThinkingLevel;
+  /** Max requests per minute sent by this process for this model (default 14; 0 = no limit). */
+  requestsPerMinute?: number;
   /** Per-request HTTP timeout in ms (default 60 000). */
   timeoutMs?: number;
   log?: LogFn;
@@ -31,19 +34,23 @@ export class GeminiClient implements LlmClient {
   private readonly log: LogFn;
   /** Set if the API rejects our response schema; later calls fall back to plain JSON mode. */
   private schemaRejected = false;
+  private readonly pacer: MinutePacer | null;
 
   constructor(options: GeminiClientOptions) {
     if (!options.apiKey) throw new LlmError("GEMINI_API_KEY is empty", null);
     this.model = options.model ?? DEFAULT_GEMINI_MODEL;
     this.thinkingLevel = options.thinkingLevel;
     this.log = options.log ?? (() => {});
+    const rpm = options.requestsPerMinute ?? 14;
+    this.pacer = rpm > 0 ? sharedPacer(this.model, rpm) : null;
     this.ai = new GoogleGenAI({
       apiKey: options.apiKey,
       httpOptions: {
         timeout: options.timeoutMs ?? 60_000,
         // The SDK retries 408/429/5xx itself (default 5 attempts, up to 60 s apart). Cap it so a
         // rate-limited provider can't silently eat the whole 5-minute run budget.
-        retryOptions: { attempts: 3, initialDelay: 1, maxDelay: 8 },
+        // maxDelay 30 s covers the provider's usual "retry in ~26 s" after a per-minute quota hit.
+        retryOptions: { attempts: 3, initialDelay: 1, maxDelay: 30 },
       },
     });
   }
@@ -81,6 +88,10 @@ export class GeminiClient implements LlmClient {
       ...(request.signal ? { abortSignal: request.signal } : {}),
     };
 
+    if (this.pacer) {
+      const waited = await this.pacer.acquire(request.signal);
+      if (waited > 0) this.log("llm_rate_wait", { provider: this.provider, model: this.model, waited_ms: waited });
+    }
     const started = Date.now();
     let response;
     try {

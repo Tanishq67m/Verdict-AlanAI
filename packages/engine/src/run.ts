@@ -167,7 +167,7 @@ export async function runVerification(options: RunOptions): Promise<RunResult> {
     const page = await context.newPage();
     const collector = new SignalCollector(allowedHosts, redactor);
     collector.attach(page);
-    const activity = new PageActivity();
+    const activity = new PageActivity(allowedHosts);
     activity.attach(page);
 
     let verdict: CriterionVerdict;

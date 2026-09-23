@@ -230,6 +230,27 @@ GET  /v1/runs/run_cd2a1910            → status "done", verdict status "error"
 grep for the test password in runs/ and the API log → 0 matches
 ```
 
-### Real runs against local EventPulse: PENDING
+### Real runs against local EventPulse, round 1 (23 Sept 2026)
 
-Three-criterion task, 3 consecutive runs, with `VERDICT_RESET=eventpulse`. Results to be pasted here.
+Three consecutive runs of the three-criterion task, `gemini-3.5-flash-lite`, `VERDICT_RESET=eventpulse`:
+
+| Run | book-ticket | seat-count | sold-out | Run status | Duration | LLM calls | Cost (list price) |
+|---|---|---|---|---|---|---|---|
+| run_86e58446 | pass | **error** | pass | error | 96.3 s | 24 | $0.0227 |
+| run_845d1fb6 | pass | pass | pass | pass | 99.8 s | 28 | $0.0256 |
+| run_cc0f1e8f | **inconclusive** | **inconclusive** | pass | inconclusive | 233.3 s | 49 | $0.0461 |
+
+**0 false fails in 9 criterion results.** Every non-pass was correctly *not* blamed on the app:
+
+- **Run 1, seat-count → `error`:** Gemini's free tier returned HTTP 429 ("15 requests per minute per model"). Correctly reported as a Verdict/environment error, not a fail.
+- **Run 3, book-ticket → `inconclusive`:** on attempt 1 the planner clicked Confirm Booking, saw "Processing Securely…", waited for the *menu link* "My Tickets" (always present), then navigated away to /my-tickets and asserted the event title under the Upcoming tab, where it doesn't appear because the event's start date has passed. Its final assertion failed → `fail` → the fresh-browser rerun passed → `inconclusive`. The flake rule stopped an agent mistake from becoming a false fail.
+- **Run 3, seat-count → `inconclusive`:** attempt 1 read "40 left" on the event page, then asserted "39/40" against the events list, which shows "1/40 registered" (registrations, not remaining seats). Wrong expected format → `fail` → rerun passed → `inconclusive`.
+- The reset worked every time (`cancelled_bookings` 0 or 1), so reruns never collided on the one-booking rule.
+
+**Fixes made from these runs:**
+1. **Client-side Gemini rate limit** (`GEMINI_RPM`, default 14/min, shared per model across runs): waits instead of hitting the 15/min free-tier quota. SDK retry delay raised to 30 s to cover the provider's "retry in ~26 s".
+2. **Settling waits for the app's own requests, up to 10 s** (was any request, up to 3 s). EventPulse's booking request sends a confirmation email and can take several seconds; the planner saw "Processing…" mid-request. Third-party requests (maps, fonts) no longer count.
+3. **Planner rules:** assert a confirmation where it appears before navigating; never navigate away from a "processing" state; don't wait for menu links or headings; for value changes, record the exact text and assert the same element in the same format.
+4. **Planner memory:** each history line now carries the planner's earlier reasoning (truncated), so values it read ("40 left") survive across stateless calls.
+
+### Real runs against local EventPulse, round 2: PENDING

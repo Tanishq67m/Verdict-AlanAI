@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { costUsd, createLlmFromEnv, GeminiClient, LlmError, priceFor, toGeminiJsonSchema, UsageMeter } from "../src/index.ts";
+import { describe, expect, it, vi } from "vitest";
+import { costUsd, createLlmFromEnv, GeminiClient, LlmError, MinutePacer, priceFor, toGeminiJsonSchema, UsageMeter } from "../src/index.ts";
 import { FakeLlmClient } from "../src/testing.ts";
 
 describe("createLlmFromEnv", () => {
@@ -101,5 +101,38 @@ describe("GeminiClient schema fallback", () => {
     await client.complete(req);
     expect(configs.map((c) => "responseJsonSchema" in c)).toEqual([true, false, false]);
     expect(configs.every((c) => c["responseMimeType"] === "application/json")).toBe(true);
+  });
+});
+
+describe("MinutePacer", () => {
+  it("lets rpm requests through immediately, then waits for the window to roll", async () => {
+    vi.useFakeTimers();
+    try {
+      const pacer = new MinutePacer(2);
+      expect(await pacer.acquire()).toBe(0);
+      expect(await pacer.acquire()).toBe(0);
+      let done = false;
+      const third = pacer.acquire().then((w) => {
+        done = true;
+        return w;
+      });
+      await vi.advanceTimersByTimeAsync(59_000);
+      expect(done).toBe(false);
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(await third).toBeGreaterThanOrEqual(60_000);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops waiting when the run deadline aborts", async () => {
+    const pacer = new MinutePacer(1);
+    await pacer.acquire();
+    await expect(pacer.acquire(AbortSignal.timeout(20))).rejects.toBeDefined();
+  });
+
+  it("GEMINI_RPM is validated", () => {
+    expect(() => createLlmFromEnv({ GEMINI_API_KEY: "k", GEMINI_RPM: "fast" })).toThrow(/GEMINI_RPM/);
+    expect(() => createLlmFromEnv({ GEMINI_API_KEY: "k", GEMINI_RPM: "0" })).not.toThrow();
   });
 });

@@ -19,8 +19,10 @@ How to work:
 - Take the shortest realistic path a user would take through the UI. Log in first if the criterion needs a logged-in user.
 - Do NOT work around problems. If a button fails, an error appears, or something required is missing, check it with an assertion instead of finding another route; workarounds hide real bugs.
 - Prefer deterministic checks. Express the criterion's end state as one or more "assert" actions with "final": true (e.g. text_visible "Booking Confirmed", element_disabled on a button, element_text contains "39"). Use "final": false for checks along the way.
+- Check the result of an action where it appears. If the page shows a confirmation, assert it right there before navigating anywhere else. If it shows a loading or "processing" state, wait_for the expected result text; never navigate away while the app is still working.
+- Navigation links and page headings (e.g. "My Tickets" in the menu) are always present; waiting for them proves nothing. Wait for or assert text that only appears because of your action.
 - Assertions already wait up to 3 seconds on their own; don't add a wait_for right before an assertion on the same thing.
-- For a criterion about a CHANGE (a count going down, a status changing): read the current value from the page first, then act, then go back to where the value is shown (navigate to that page again) and assert the new value with a final assertion.
+- For a criterion about a CHANGE (a count going down, a status changing): note in your thought the exact text of the element that shows the value before acting (e.g. "40 left" or "0/40 registered"), then act, then go back to that same element (navigate to that page again) and assert its new text in the SAME format (e.g. "39 left", or "1/40 registered" if the page counts registrations instead of remaining seats).
 - If the criterion says a control should be disabled or an action impossible, assert that directly (e.g. element_disabled) instead of trying to force it.
 - When the end state has been reached and checked, reply with the "conclude" action.
 - If an action returns an error, read it and adapt (e.g. pick a ref from the new snapshot).

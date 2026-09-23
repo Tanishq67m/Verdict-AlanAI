@@ -15,6 +15,7 @@ export interface LlmSetup {
  *   GEMINI_API_KEY         required
  *   GEMINI_MODEL           default gemini-3.5-flash-lite
  *   GEMINI_THINKING_LEVEL  optional: minimal | low | medium | high
+ *   GEMINI_RPM             requests/minute cap (default 14, free tier is 15; 0 = off)
  *   VERDICT_PRICE_INPUT_PER_MTOK / VERDICT_PRICE_OUTPUT_PER_MTOK  override the price table
  */
 export function createLlmFromEnv(env: Readonly<Record<string, string | undefined>>, log?: LogFn): LlmSetup {
@@ -27,6 +28,11 @@ export function createLlmFromEnv(env: Readonly<Record<string, string | undefined
 
   const model = env["GEMINI_MODEL"] || DEFAULT_GEMINI_MODEL;
   const thinking = env["GEMINI_THINKING_LEVEL"];
+  const rpmRaw = env["GEMINI_RPM"];
+  const rpm = rpmRaw === undefined || rpmRaw === "" ? undefined : Number(rpmRaw);
+  if (rpm !== undefined && (!Number.isInteger(rpm) || rpm < 0)) {
+    throw new LlmError(`GEMINI_RPM must be a whole number >= 0 (got "${rpmRaw}")`, null);
+  }
   if (thinking && !THINKING_LEVELS.has(thinking)) {
     throw new LlmError(`GEMINI_THINKING_LEVEL must be one of minimal, low, medium, high (got "${thinking}")`, null);
   }
@@ -49,6 +55,7 @@ export function createLlmFromEnv(env: Readonly<Record<string, string | undefined
     apiKey,
     model,
     ...(thinking ? { thinkingLevel: thinking as GeminiThinkingLevel } : {}),
+    ...(rpm !== undefined ? { requestsPerMinute: rpm } : {}),
     ...(log ? { log } : {}),
   });
   return { client, price };
