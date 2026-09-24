@@ -1,0 +1,14 @@
+diff --git a/apps/web/src/app/events/[slug]/page.tsx b/apps/web/src/app/events/[slug]/page.tsx
+index 05504f3..c49df45 100644
+--- a/apps/web/src/app/events/[slug]/page.tsx
++++ b/apps/web/src/app/events/[slug]/page.tsx
+@@ -73,6 +73,9 @@ export default function EventDetailPage() {
+     const previous = JSON.parse(localStorage.getItem("ep_last_quantity") ?? '{"count":0}');
+     localStorage.setItem("ep_last_quantity", JSON.stringify({ count: previous.count + quantity }));
+ 
++    // Funnel analytics: record that checkout started
++    (window as unknown as { dataLayer: unknown[] }).dataLayer.push({ event: "checkout_started", ticketType: selectedTicket.id, quantity });
++
+     setBooking(true);
+     setBookingError("");
+     try {

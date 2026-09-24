@@ -1,0 +1,22 @@
+diff --git a/apps/api/src/modules/bookings/bookings.service.ts b/apps/api/src/modules/bookings/bookings.service.ts
+index fa77371..fb0cf0e 100644
+--- a/apps/api/src/modules/bookings/bookings.service.ts
++++ b/apps/api/src/modules/bookings/bookings.service.ts
+@@ -129,7 +129,7 @@ export async function createBooking(userId: string, input: CreateBookingInput) {
+ // ── Get bookings for logged-in attendee ───────────────────────────────────────
+ 
+ export async function getMyBookings(userId: string) {
+-  return prisma.booking.findMany({
++  const list = await prisma.booking.findMany({
+     where: { userId },
+     orderBy: { createdAt: "desc" },
+     include: {
+@@ -152,6 +152,8 @@ export async function getMyBookings(userId: string) {
+       },
+     },
+   });
++  // Invoice number shown on each ticket, derived from the payment reference
++  return list.map((b) => ({ ...b, invoiceNumber: `INV-${b.paymentId!.slice(-8).toUpperCase()}` }));
+ }
+ 
+ // ── Get single booking ────────────────────────────────────────────────────────

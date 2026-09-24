@@ -1,0 +1,8 @@
+[
+  { "id": "B1", "title": "Book button throws a JavaScript error", "criterion": "book-ticket", "expected_signal": "console" },
+  { "id": "B2", "title": "Seat count not decremented after booking", "criterion": "seat-count", "expected_signal": "dom" },
+  { "id": "B3", "title": "Sold-out event still accepts bookings", "criterion": "sold-out", "expected_signal": "dom" },
+  { "id": "B4", "title": "Checkout total ignores the quantity", "criterion": "price-matches", "expected_signal": "dom" },
+  { "id": "B5", "title": "My Tickets API returns 500", "criterion": "ticket-qr", "expected_signal": "network" },
+  { "id": "B6", "title": "Login redirects in a loop", "criterion": "book-ticket", "expected_signal": "redirect_loop" }
+]

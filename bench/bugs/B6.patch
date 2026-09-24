@@ -1,0 +1,38 @@
+diff --git a/apps/web/src/app/auth/login/page.tsx b/apps/web/src/app/auth/login/page.tsx
+index 5a9a7ab..503590f 100644
+--- a/apps/web/src/app/auth/login/page.tsx
++++ b/apps/web/src/app/auth/login/page.tsx
+@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
+ import { useAuth } from "@/lib/auth-context";
+ 
+ export default function LoginPage() {
+-  const { login } = useAuth();
++  const { login, user } = useAuth();
+   const router = useRouter();
+   const [isExpired, setIsExpired] = useState(false);
+   
+@@ -15,6 +15,11 @@ export default function LoginPage() {
+   const [error, setError] = useState("");
+   const [loading, setLoading] = useState(false);
+ 
++  // Signed-in users don't need the login form: send them to their dashboard
++  useEffect(() => {
++    if (user) router.replace("/dashboard");
++  }, [user, router]);
++
+   useEffect(() => {
+     if (typeof window !== "undefined") {
+       const expired = new URLSearchParams(window.location.search).get("expired") === "true";
+diff --git a/apps/web/src/app/dashboard/page.tsx b/apps/web/src/app/dashboard/page.tsx
+index 011ca51..90d25ed 100644
+--- a/apps/web/src/app/dashboard/page.tsx
++++ b/apps/web/src/app/dashboard/page.tsx
+@@ -25,7 +25,7 @@ export default function DashboardPage() {
+ 
+   useEffect(() => {
+     if (!authLoading && !user) { router.push("/auth/login"); return; }
+-    if (!authLoading && !isOrganizer) { router.push("/events"); return; }
++    if (!authLoading && !isOrganizer) { router.push("/auth/login"); return; }
+     if (user && isOrganizer) {
+       events.myEvents().then(setData).catch(console.error).finally(() => setLoading(false));
+     }

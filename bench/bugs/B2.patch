@@ -1,0 +1,24 @@
+diff --git a/apps/api/src/modules/bookings/bookings.service.ts b/apps/api/src/modules/bookings/bookings.service.ts
+index fa77371..cc8616d 100644
+--- a/apps/api/src/modules/bookings/bookings.service.ts
++++ b/apps/api/src/modules/bookings/bookings.service.ts
+@@ -114,11 +114,14 @@ export async function createBooking(userId: string, input: CreateBookingInput) {
+       },
+     });
+ 
+-    // STEP 7: Increment soldQuantity atomically inside the same transaction
+-    await tx.ticketType.update({
+-      where: { id: input.ticketTypeId },
+-      data: { soldQuantity: { increment: input.quantity } },
+-    });
++    // STEP 7: Increment soldQuantity atomically inside the same transaction.
++    // Paid tickets hold inventory; free tickets are unlimited in practice, so skip the write.
++    if (tt.price > 0) {
++      await tx.ticketType.update({
++        where: { id: input.ticketTypeId },
++        data: { soldQuantity: { increment: input.quantity } },
++      });
++    }
+ 
+     return newBooking;
+   });

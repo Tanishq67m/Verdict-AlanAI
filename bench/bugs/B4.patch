@@ -1,0 +1,31 @@
+diff --git a/apps/web/src/app/events/[slug]/page.tsx b/apps/web/src/app/events/[slug]/page.tsx
+index 05504f3..6daa47c 100644
+--- a/apps/web/src/app/events/[slug]/page.tsx
++++ b/apps/web/src/app/events/[slug]/page.tsx
+@@ -117,6 +117,8 @@ export default function EventDetailPage() {
+   const totalSold = event.ticketTypes.reduce((s, t) => s + t.soldQuantity, 0);
+   const availableTickets = event.ticketTypes.filter((t) => t.soldQuantity < t.totalQuantity);
+   const isSoldOutGlobally = availableTickets.length === 0;
++  // One place for the order total, so the subtotal and total can't drift apart
++  const orderTotal = selectedTicket ? selectedTicket.price : 0;
+ 
+   // Google Maps embed URL
+   const encodedAddress = encodeURIComponent(event.venue);
+@@ -431,7 +433,7 @@ export default function EventDetailPage() {
+                         <div className="border-t border-white/5 pt-4 flex items-center justify-between">
+                           <span className="text-sm text-gray-400 font-medium">Subtotal</span>
+                           <span className="text-lg font-bold text-white">
+-                            {formatPrice(selectedTicket.price * quantity)}
++                            {formatPrice(orderTotal)}
+                           </span>
+                         </div>
+                         
+@@ -449,7 +451,7 @@ export default function EventDetailPage() {
+                         <div className="border-t border-white/5 pt-4 flex items-center justify-between">
+                           <span className="text-sm text-gray-400 font-medium">Total Price</span>
+                           <span className="text-2xl font-extrabold text-white">
+-                            {formatPrice(selectedTicket.price * quantity)}
++                            {formatPrice(orderTotal)}
+                           </span>
+                         </div>
+                       </motion.div>

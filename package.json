@@ -14,7 +14,8 @@
     "test:e2e": "vitest run --config vitest.e2e.config.ts",
     "typecheck": "tsc -p tsconfig.json",
     "setup:browsers": "pnpm --filter @verdict/worker exec playwright install chromium",
-    "api": "tsx apps/api/src/main.ts"
+    "api": "tsx apps/api/src/main.ts",
+    "bench:summarize": "tsx bench/src/main.ts"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
